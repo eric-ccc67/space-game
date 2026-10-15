@@ -1,4 +1,41 @@
 /* ===== game.js ===== */
+
+// ==========================================
+// VELOCIDAD CONSTANTE (60 ticks/s) EN CUALQUIER PANTALLA
+// ==========================================
+// El juego avanza "por cuadro" (sin tiempo real). En teléfonos de 90/120/144 Hz requestAnimationFrame
+// llama el bucle 1.5-2.4 veces más seguido y TODO (menú, enemigos, balas, música sincronizada) iba
+// más rápido. Este limitador deja pasar solo los cuadros necesarios con un acumulador de tiempo, de modo
+// que cada bucle (menuLoop, gameLoop, ...) corra a 60 ticks por segundo de media sin importar el Hz.
+// Los callbacks de un solo uso (funciones anónimas nuevas) y los que ya usan su propio dt no se ven afectados.
+(function () {
+    if (window.__rafLimited) return; window.__rafLimited = true;
+    const nativeRAF = window.requestAnimationFrame.bind(window);
+    const nativeCAF = window.cancelAnimationFrame.bind(window);
+    const STEP = 1000 / 60, MIN = STEP - 1.4;
+    const state = new WeakMap();          // callback -> { last, acc }
+    const live = new Map();               // id público -> id nativo vigente (para poder cancelar)
+    let nextId = 1;
+    window.requestAnimationFrame = function (cb) {
+        if (typeof cb !== 'function') return nativeRAF(cb);
+        const id = nextId++;
+        const tick = function (ts) {
+            let st = state.get(cb);
+            if (!st) { st = { last: ts, acc: STEP }; state.set(cb, st); }      // primer cuadro: pasa directo
+            const dt = Math.min(100, Math.max(0, ts - st.last)); st.last = ts;
+            st.acc += dt;
+            if (st.acc < MIN) { live.set(id, nativeRAF(tick)); return; }      // cuadro de sobra (pantalla >60 Hz): se salta
+            st.acc -= STEP; if (st.acc > STEP) st.acc = STEP; if (st.acc < -STEP) st.acc = -STEP;   // el sobrante negativo se conserva: promedio exacto de 60/s
+            live.delete(id);
+            cb(ts);
+        };
+        live.set(id, nativeRAF(tick));
+        return id;
+    };
+    window.cancelAnimationFrame = function (id) {
+        if (live.has(id)) { nativeCAF(live.get(id)); live.delete(id); } else nativeCAF(id);
+    };
+})();
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const gameContainer = document.getElementById('gameContainer');
@@ -45,6 +82,9 @@ let hudPosition = 'side';
 let hudSize = 270;            
 let isPortraitMode = false;
 let isVerticalMode = false; // Modo vertical estilo Touhou (solo PC, ver optVerticalMode)
+let viewScale = 1;          // pantalla real / lienzo lógico (< 1 en teléfono horizontal)
+const MOBILE_ZOOM_OUT = 1.25;      // cuánto más "grande" es el mundo lógico en teléfono horizontal (1 = como antes)
+const MOBILE_LOGICAL_MAX_H = 520;  // tope del alto lógico
 
 function computeLayout() {
     const w = window.innerWidth;
@@ -63,6 +103,7 @@ function computeLayout() {
         gameContainer.style.width = boxW + 'px';
         gameContainer.style.height = boxH + 'px';
         gameContainer.style.transform = 'none';
+        canvas.style.width = ''; canvas.style.height = ''; viewScale = 1;
         canvas.width = boxW;
         canvas.height = boxH;
 
@@ -98,6 +139,7 @@ function computeLayout() {
         gameContainer.style.width = boxW + 'px';
         gameContainer.style.height = areaH + 'px';
         gameContainer.style.transform = 'none';
+        canvas.style.width = ''; canvas.style.height = ''; viewScale = 1;
         canvas.width = boxW;
         canvas.height = areaH;
 
@@ -116,11 +158,26 @@ function computeLayout() {
     gameContainer.style.width = w + 'px';
     gameContainer.style.height = h + 'px';
     gameContainer.style.transform = 'none';
-    canvas.width = w;
-    canvas.height = h;
 
     const isMobile = isMobileNow;
     isPortraitMode = isMobile && h > w;
+
+    // TELÉFONO HORIZONTAL: el juego estaba diseñado para ~600 px de alto; en un móvil de 360-420 px todo
+    // (naves, hadas, balas, textos) se veía enorme y quedaba poco espacio para esquivar. Ahora el lienzo usa
+    // una resolución LÓGICA mayor (~25 % más) y el navegador lo ajusta a la pantalla: los sprites se ven más
+    // chicos y proporcionados, el área de juego es más amplia y nada cambia en la lógica (el hitbox sigue igual).
+    // Los toques usan coordenadas de pantalla/ratio del lienzo, así que el escalado no los afecta.
+    let logicalW = w, logicalH = h;
+    if (isMobile && !isPortraitMode && h < 540) {
+        logicalH = Math.round(Math.min(MOBILE_LOGICAL_MAX_H, h * MOBILE_ZOOM_OUT));
+        logicalW = Math.round(w * logicalH / h);
+        canvas.style.width = '100%'; canvas.style.height = '100%';
+    } else {
+        canvas.style.width = ''; canvas.style.height = '';
+    }
+    viewScale = h / logicalH;
+    canvas.width = logicalW;
+    canvas.height = logicalH;
 
     if (isPortraitMode) {
         hudPosition = 'bottom';
@@ -132,6 +189,8 @@ function computeLayout() {
         hudSize = Math.round(optWidescreen.checked
             ? Math.max(200, Math.min(280, canvas.width * 0.18))
             : Math.max(230, Math.min(320, canvas.width * 0.26)));
+        // en teléfono horizontal el panel lateral es más angosto: más pantalla para jugar
+        if (isMobile && viewScale < 1) hudSize = Math.round(Math.max(196, Math.min(232, canvas.width * 0.19)));
         playAreaW = canvas.width - hudSize;
         playAreaH = canvas.height;
     }
@@ -11591,8 +11650,8 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
     let roleTimer = 0;         // cuenta para generar enemigos con rol sueltos
 
     const ANNOUNCE_FRAMES = 130;
-    const EVENT_TIMES = [420, 1130, 1830];    // frames de oleada en que arrancan (≈7s, 19s, 30s); la oleada dura 50 s
-    const EVENT_TIMEOUT = 1500;
+    const EVENT_TIMES = [330, 1000, 1650];    // v26: frames de oleada en que arrancan (≈5.5s, 17s, 27s); la oleada dura 50 s
+    const EVENT_TIMEOUT = 1100;
 
     const EVENTS = [
         { id: 'row',   name: 'LÍNEA DE BLASTERS',   hint: '¡CUIDADO CON LAS COLUMNAS!' },
@@ -11643,7 +11702,7 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
     const pcx = () => player.x + player.width / 2;
     const pcy = () => player.y + player.height / 2;
-    const isModern = () => currentMode === 'moderno';
+    const isModern = () => currentMode === 'moderno' || currentMode === 'infinito';   // v26: también en el Modo Infinito
 
     function shield() { return powerUps.shield > Date.now(); }
 
@@ -11932,16 +11991,31 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
         }
     }
 
-    // ---- Aviso de la onda expansiva del PULSER ----------------------------------
+    // ---- ARCOS DE LUZ del PULSER ------------------------------------------------
+    // v26: los arcos ya NO se ven cortados ni son una línea fina que desaparece: son medias lunas de luz
+    // arcoíris con brillo, bordes que se desvanecen suavemente y "postes" luminosos que marcan cada abertura.
+    // Siempre hay una abertura GRANDE (mínimo GAP_MIN_PX píxeles de ancho a cualquier distancia) y se mueve
+    // despacio, así que se pasan sin dificultad. Estilos (según dificultad):
+    //   ring = un arco con la abertura donde estás · twin = dos aberturas · sway = la abertura se balancea.
+    const GAP_MIN_PX = 170;            // ancho mínimo de cualquier abertura (px), sin importar el radio
+    const ARC_START = -0.06 * PI, ARC_END = 1.06 * PI;    // el arco cubre un poco más que el semicírculo (no se ve "cortado")
+    const WAVE_STYLES = {
+        facil: ['ring'], medio: ['ring', 'twin'], dificil: ['ring', 'twin', 'sway'], lunatico: ['ring', 'twin', 'sway']
+    };
+    function gapHalf(r, gapW) { return Math.min(0.42 * PI, Math.max(gapW / 2, (GAP_MIN_PX / 2) / Math.max(40, r))); }
+    function arcHue(a, t) { return (a * 57.3 * 1.4 + t * 3.2) % 360; }
+
     class PulseWarn {
         constructor(owner, tele) {
             this.kind = 'pulsewarn'; this.owner = owner; this.tele = tele; this.t = 0; this.dead = false;
             this.gapA = this.aimGap(); this.locked = false;
+            const pool = WAVE_STYLES[currentDiff] || WAVE_STYLES.medio;
+            this.style = pool[Math.floor(Math.random() * pool.length)];
         }
         aimGap() {
             const o = this.owner, cx = o.x + o.width / 2, cy = o.y + o.height / 2;
             const a = Math.atan2(pcy() - cy, pcx() - cx);
-            return clamp(a, 0.16 * PI, 0.84 * PI);   // la abertura apunta hacia donde estás
+            return clamp(a, 0.2 * PI, 0.8 * PI);   // la abertura apunta hacia donde estás
         }
         update() {
             if (!enemies.includes(this.owner)) { this.dead = true; return; }
@@ -11950,33 +12024,39 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
             else if (!this.locked) { this.locked = true; sfxLock(); }
             if (this.t >= this.tele) {
                 const o = this.owner, cx = o.x + o.width / 2, cy = o.y + o.height * 0.55, d = D();
-                // máx. 2 ondas a la vez en pantalla (si hay más, este pulser espera) para evitar lag y muros imposibles
-                if (hazards.filter(h => h.kind === 'wave').length >= 2) { this.t = this.tele; return; }
-                // un solo arco por disparo; si hubiera varios, comparten la misma abertura para que siempre se pueda pasar
+                // máx. 3 ondas a la vez en pantalla (si hay más, este pulser espera) para evitar lag y muros imposibles
+                if (hazards.filter(h => h.kind === 'wave').length >= 3) { this.t = this.tele; return; }
+                // eco: el 2.º arco (Difícil/Lunático) mueve su abertura un poco hacia un lado, siempre alcanzable
                 const n = Math.min(o.pulses, 2);
                 for (let k = 0; k < n; k++) {
-                    hazards.push(new ShockWave(cx, cy, clamp(this.gapA, 0.14 * PI, 0.86 * PI), d.gapW, d.waveSpd, k * 34));
+                    const shift = k === 0 ? 0 : (Math.random() < 0.5 ? -1 : 1) * 0.09 * PI;
+                    hazards.push(new ShockWave(cx, cy, clamp(this.gapA + shift, 0.16 * PI, 0.84 * PI), d.gapW, d.waveSpd, k * 40, this.style));
                 }
-                sfxWave(); screenShake = Math.max(screenShake, 5);
+                createExplosion(cx, cy, '#e8a8ff', 14, true);
+                sfxWave(); screenShake = Math.max(screenShake, 4);
                 this.dead = true;
             }
         }
         draw() {
             const o = this.owner, cx = o.x + o.width / 2, cy = o.y + o.height * 0.55;
             const p = this.t / this.tele, on = Math.floor(this.t / (3 + Math.floor(p * 4))) % 2 === 0;
-            const R = 70 + p * 80, gw = D().gapW;
+            const R = 70 + p * 80, gh = gapHalf(R, D().gapW);
             ctx.save();
-            // semicírculo punteado que muestra por dónde irá la onda, con la abertura segura libre
+            // media luna punteada que muestra por dónde irá la onda, con la abertura segura libre
             ctx.strokeStyle = on ? '#ff8ae8' : 'rgba(255,138,232,0.4)';
-            ctx.lineWidth = 3; ctx.setLineDash([8, 7]); ctx.lineDashOffset = -this.t;
-            const a0 = 0.04 * PI, a1 = 0.96 * PI, g0 = this.gapA - gw / 2, g1 = this.gapA + gw / 2;
-            ctx.beginPath(); ctx.arc(cx, cy, R, a0, Math.max(a0, g0)); ctx.stroke();
-            ctx.beginPath(); ctx.arc(cx, cy, R, Math.min(a1, g1), a1); ctx.stroke();
+            ctx.lineWidth = 3; ctx.setLineDash([8, 7]); ctx.lineDashOffset = -this.t; ctx.lineCap = 'round';
+            const g0 = this.gapA - gh, g1 = this.gapA + gh;
+            ctx.beginPath(); ctx.arc(cx, cy, R, ARC_START, Math.max(ARC_START, g0)); ctx.stroke();
+            ctx.beginPath(); ctx.arc(cx, cy, R, Math.min(ARC_END, g1), ARC_END); ctx.stroke();
             ctx.setLineDash([]);
-            // marca verde en la abertura segura
-            ctx.fillStyle = this.locked ? '#6dff9a' : 'rgba(109,255,154,0.6)';
+            // flecha verde en la abertura segura (y flechitas ‹ › si la abertura se va a balancear)
             const gx = cx + Math.cos(this.gapA) * (R + 16), gy = cy + Math.sin(this.gapA) * (R + 16);
-            ctx.beginPath(); ctx.arc(gx, gy, 6, 0, TAU); ctx.fill();
+            ctx.fillStyle = this.locked ? '#6dff9a' : 'rgba(109,255,154,0.6)';
+            ctx.beginPath(); ctx.arc(gx, gy, 7, 0, TAU); ctx.fill();
+            if (this.style === 'sway') {
+                ctx.fillStyle = '#6dff9a'; ctx.font = '12px "Press Start 2P"'; ctx.textAlign = 'center';
+                ctx.fillText('‹ ›', gx, gy + 24);
+            }
             // anillos que se contraen hacia el enemigo (carga)
             for (let i = 0; i < 2; i++) {
                 const q = (p * 2 + i * 0.5) % 1;
@@ -11987,40 +12067,97 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
         }
     }
 
-    // ---- Onda expansiva hacia abajo (semicírculo con abertura) -------------------
+    // ---- Onda expansiva hacia abajo: arcos de luz con aberturas ------------------
     class ShockWave {
-        constructor(cx, cy, gapA, gapW, speed, delay) {
+        constructor(cx, cy, gapA, gapW, speed, delay, style) {
             this.kind = 'wave'; this.cx = cx; this.cy = cy; this.r = 16; this.speed = speed;
-            this.gapA = gapA; this.gapW = gapW; this.delay = delay; this.thick = 14;
-            this.maxR = Math.max(Math.hypot(cx, playAreaH - cy), Math.hypot(playAreaW - cx, playAreaH - cy)) + 30; this.dead = false; this.grazed = false;
+            this.gapA = gapA; this.gapW = gapW; this.delay = delay; this.thick = 12;
+            this.style = style || 'ring'; this.t = 0;
+            // las ondas viajan hasta salir por completo de la pantalla (así nunca se "cortan" a media pantalla)
+            this.maxR = Math.max(Math.hypot(cx, playAreaH - cy), Math.hypot(playAreaW - cx, playAreaH - cy)) + 40;
+            this.dead = false; this.grazed = false;
+        }
+        // centros de las aberturas en este instante
+        gaps() {
+            let g = this.gapA;
+            if (this.style === 'sway') g = clamp(this.gapA + Math.sin(this.t * 0.03) * 0.11 * PI, 0.14 * PI, 0.86 * PI);
+            const list = [g];
+            if (this.style === 'twin') list.push(clamp(g < 0.5 * PI ? g + 0.5 * PI : g - 0.5 * PI, 0.1 * PI, 0.9 * PI));
+            return list;
+        }
+        // tramos de arco dibujables/peligrosos (complemento de las aberturas)
+        segments(r) {
+            const hw = gapHalf(r, this.gapW);
+            const gs = this.gaps().map(c => [c - hw, c + hw]).sort((a, b) => a[0] - b[0]);
+            const out = []; let cur = ARC_START;
+            for (const [g0, g1] of gs) { if (g0 > cur) out.push([cur, g0]); cur = Math.max(cur, g1); }
+            if (ARC_END > cur) out.push([cur, ARC_END]);
+            return out;
         }
         update() {
             if (this.delay > 0) { this.delay--; return; }
+            this.t++;
             this.r += this.speed;
             if (this.r > this.maxR) { this.dead = true; return; }
             const px = pcx(), py = pcy(), dx = px - this.cx, dy = py - this.cy;
-            const d = Math.hypot(dx, dy), a = Math.atan2(dy, dx);
-            const inArc = (a > 0.04 * PI && a < 0.96 * PI);
-            const inGap = Math.abs(a - this.gapA) < this.gapW / 2;
-            if (inArc && !inGap) {
-                if (Math.abs(d - this.r) < this.thick / 2 + 2.2) hurtPlayer();
-                else if (Math.abs(d - this.r) < this.thick / 2 + 24) grazeOnce(this);
+            const d = Math.hypot(dx, dy);
+            const near = Math.abs(d - this.r);
+            if (near > this.thick / 2 + 24) return;
+            let a = Math.atan2(dy, dx); if (a < -0.94 * PI) a += TAU;            // lado izquierdo, justo por encima de la horizontal
+            for (const [s0, s1] of this.segments(this.r)) {
+                if (a >= s0 && a <= s1) {
+                    if (near < this.thick / 2 + 2.2) hurtPlayer(); else grazeOnce(this);
+                    return;
+                }
             }
         }
         draw() {
             if (this.delay > 0) return;
-            const a0 = 0.04 * PI, a1 = 0.96 * PI, g0 = this.gapA - this.gapW / 2, g1 = this.gapA + this.gapW / 2;
             const fade = Math.min(1, (this.maxR - this.r) / 120);
+            const lite = (typeof performanceMode !== 'undefined' && performanceMode);
             ctx.save();
             ctx.globalAlpha = Math.max(0.2, fade);
-            const seg = (from, to, lw, col) => {
-                if (to <= from) return;
-                ctx.strokeStyle = col; ctx.lineWidth = lw;
-                ctx.beginPath(); ctx.arc(this.cx, this.cy, this.r, from, to); ctx.stroke();
-            };
             ctx.lineCap = 'butt';
-            seg(a0, g0, this.thick + 6, 'rgba(160,110,255,0.4)'); seg(g1, a1, this.thick + 6, 'rgba(160,110,255,0.4)');
-            seg(a0, g0, this.thick * 0.5, '#fff'); seg(g1, a1, this.thick * 0.5, '#fff');
+            const pulse = 1 + 0.12 * Math.sin(this.t * 0.25);
+            const step = lite ? 0.14 : 0.07;
+            for (const [s0, s1] of this.segments(this.r)) {
+                const len = s1 - s0, n = Math.max(3, Math.ceil(len / step));
+                for (let i = 0; i < n; i++) {
+                    const a0 = s0 + len * i / n, a1 = s0 + len * (i + 1) / n + 0.012;
+                    const edge = Math.min(1, 0.3 + Math.min(i, n - 1 - i) / 3);          // los extremos se desvanecen (sin corte brusco)
+                    const hue = arcHue((a0 + a1) / 2, this.t);
+                    ctx.strokeStyle = `hsla(${hue},100%,62%,${(0.30 * edge).toFixed(2)})`;
+                    ctx.lineWidth = (this.thick + 12) * pulse;
+                    ctx.beginPath(); ctx.arc(this.cx, this.cy, this.r, a0, a1); ctx.stroke();
+                    ctx.strokeStyle = `hsla(${hue},100%,72%,${(0.85 * edge).toFixed(2)})`;
+                    ctx.lineWidth = this.thick * 0.7;
+                    ctx.beginPath(); ctx.arc(this.cx, this.cy, this.r, a0, a1); ctx.stroke();
+                    ctx.strokeStyle = `rgba(255,255,255,${(0.95 * edge).toFixed(2)})`;
+                    ctx.lineWidth = this.thick * 0.28;
+                    ctx.beginPath(); ctx.arc(this.cx, this.cy, this.r, a0, a1); ctx.stroke();
+                }
+                // destellos que viajan por el arco
+                if (!lite) {
+                    ctx.fillStyle = '#fff';
+                    for (let k = 0; k < 3; k++) {
+                        const aa = s0 + len * (((this.t * 0.013 + k / 3 + s0) % 1 + 1) % 1);
+                        ctx.globalAlpha = Math.max(0.2, fade) * 0.9;
+                        const sz = 2 + 1.5 * Math.sin(this.t * 0.3 + k * 2);
+                        ctx.fillRect(this.cx + Math.cos(aa) * this.r - sz, this.cy + Math.sin(aa) * this.r - sz, sz * 2, sz * 2);
+                    }
+                    ctx.globalAlpha = Math.max(0.2, fade);
+                }
+            }
+            // postes luminosos en los bordes de cada abertura: se ve claramente por dónde pasar
+            const hw = gapHalf(this.r, this.gapW);
+            for (const c of this.gaps()) {
+                for (const side of [-1, 1]) {
+                    const aa = c + side * hw, px = this.cx + Math.cos(aa) * this.r, py = this.cy + Math.sin(aa) * this.r;
+                    const g = ctx.createRadialGradient(px, py, 0, px, py, 16);
+                    g.addColorStop(0, 'rgba(255,255,255,0.95)'); g.addColorStop(0.4, 'rgba(160,255,200,0.5)'); g.addColorStop(1, 'rgba(160,255,200,0)');
+                    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(px, py, 16, 0, TAU); ctx.fill();
+                }
+            }
             ctx.restore();
         }
     }
@@ -12104,25 +12241,26 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
 
     function drawBanner(p) {
         const W = playAreaW, flash = (Math.sin(ev.t * 0.4) + 1) / 2;
+        const kb = clamp(1 / (typeof viewScale === 'number' && viewScale > 0 ? viewScale : 1), 1, 1.4);   // más grande si el lienzo se reduce (teléfono)
         const edge = Math.min(1, p * 4) * Math.min(1, (1 - p) * 4 + 0.15);
         ctx.save();
         ctx.fillStyle = `rgba(200,20,20,${((0.10 + flash * 0.10) * edge).toFixed(3)})`;
         ctx.fillRect(0, 0, W, playAreaH);
         const slide = p < 0.15 ? p / 0.15 : (p > 0.85 ? (1 - p) / 0.15 : 1);
-        const s = clamp(slide, 0, 1), boxY = 78 - (1 - s) * 40, bw = Math.min(W - 24, 460);
+        const s = clamp(slide, 0, 1), bh = 62 * kb, boxY = 78 - (1 - s) * 40, bw = Math.min(W - 24, 460 * kb);
         ctx.globalAlpha = s;
-        ctx.fillStyle = 'rgba(10,0,0,0.75)'; ctx.fillRect(W / 2 - bw / 2, boxY, bw, 62);
-        ctx.strokeStyle = '#ff2d4a'; ctx.lineWidth = 2; ctx.strokeRect(W / 2 - bw / 2, boxY, bw, 62);
+        ctx.fillStyle = 'rgba(10,0,0,0.75)'; ctx.fillRect(W / 2 - bw / 2, boxY, bw, bh);
+        ctx.strokeStyle = '#ff2d4a'; ctx.lineWidth = 2; ctx.strokeRect(W / 2 - bw / 2, boxY, bw, bh);
         ctx.textAlign = 'center';
-        ctx.fillStyle = '#ffcf5c'; ctx.font = '11px "Press Start 2P"'; ctx.fillText('¡MINI SECCIÓN!', W / 2, boxY + 19);
-        ctx.fillStyle = '#fff';    ctx.font = '11px "Press Start 2P"'; ctx.fillText(ev.def.name, W / 2, boxY + 38);
-        ctx.fillStyle = '#7ff';    ctx.font = '8px "Press Start 2P"';  ctx.fillText(ev.def.hint, W / 2, boxY + 54);
+        ctx.fillStyle = '#ffcf5c'; ctx.font = Math.round(11 * kb) + 'px "Press Start 2P"'; ctx.fillText('¡MINI SECCIÓN!', W / 2, boxY + 19 * kb);
+        ctx.fillStyle = '#fff';    ctx.font = Math.round(11 * kb) + 'px "Press Start 2P"'; ctx.fillText(ev.def.name, W / 2, boxY + 38 * kb);
+        ctx.fillStyle = '#7ff';    ctx.font = Math.round(8 * kb) + 'px "Press Start 2P"';  ctx.fillText(ev.def.hint, W / 2, boxY + 54 * kb);
         // signos de alerta a los lados
         ctx.fillStyle = '#ffe14a';
-        for (const sx of [W / 2 - bw / 2 - 20, W / 2 + bw / 2 + 20]) {
-            const by = boxY + 31 + Math.sin(ev.t * 0.35) * 3;
-            ctx.beginPath(); ctx.moveTo(sx, by - 14); ctx.lineTo(sx - 13, by + 10); ctx.lineTo(sx + 13, by + 10); ctx.closePath(); ctx.fill();
-            ctx.fillStyle = '#000'; ctx.font = '11px "Press Start 2P"'; ctx.fillText('!', sx, by + 8); ctx.fillStyle = '#ffe14a';
+        for (const sx of [W / 2 - bw / 2 - 20 * kb, W / 2 + bw / 2 + 20 * kb]) {
+            const by = boxY + 31 * kb + Math.sin(ev.t * 0.35) * 3;
+            ctx.beginPath(); ctx.moveTo(sx, by - 14 * kb); ctx.lineTo(sx - 13 * kb, by + 10 * kb); ctx.lineTo(sx + 13 * kb, by + 10 * kb); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#000'; ctx.font = Math.round(11 * kb) + 'px "Press Start 2P"'; ctx.fillText('!', sx, by + 8 * kb); ctx.fillStyle = '#ffe14a';
         }
         ctx.restore();
     }
@@ -12188,7 +12326,7 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
 
             // programación de la mini sección
             if (evCool > 0) evCool--;
-            if (!ev && evCool <= 0 && evIdx < EVENT_TIMES.length && waveTimer >= EVENT_TIMES[evIdx] && waveTimer < dur - 500) startEvent();
+            if (!ev && evCool <= 0 && evIdx < EVENT_TIMES.length && waveTimer >= EVENT_TIMES[evIdx] && waveTimer < dur - 300) startEvent();
             if (ev) stepEvent();
 
             // enemigos sueltos con función (no durante una mini sección ni al final de la oleada)

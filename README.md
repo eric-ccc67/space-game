@@ -1,3 +1,12 @@
+# Cambios v26
+
+- **Velocidad estable en cualquier teléfono** (`juego.js`, inicio del archivo): el juego avanzaba "por cuadro", así que en pantallas de 90/120/144 Hz el menú y el gameplay iban 1.5-2.4x más rápido. Un limitador de cuadros (60 ticks/s) deja todo a la velocidad correcta sin importar los Hz.
+- **Teléfono horizontal**: el lienzo usa una resolución lógica ~25 % mayor (`MOBILE_ZOOM_OUT` / `MOBILE_LOGICAL_MAX_H` arriba de `juego.js`), por lo que naves, hadas y balas se ven más pequeños y proporcionados, hay más espacio para esquivar y el panel lateral es más angosto (196-232 px lógicos). Los hitbox no cambian. Para volver al tamaño anterior pon `MOBILE_ZOOM_OUT = 1`.
+- **Eventos especiales (mini secciones, `ondas.js` dentro de `juego.js`)**: ahora también ocurren en el Modo Infinito, arrancan antes (≈5.5 s, 17 s y 27 s de cada oleada), no se descartan por llegar tarde y el aviso es legible en teléfono.
+- **Arcos de luz del PULSER renovados**: ya no se cortan; son medias lunas arcoíris con brillo, destellos y bordes que se desvanecen, y cada abertura tiene "postes" luminosos. La abertura mide siempre >= 170 px (`GAP_MIN_PX`). Nuevos estilos según dificultad: `ring` (abertura donde estás), `twin` (dos aberturas) y `sway` (la abertura se balancea despacio, con aviso ‹ ›), más un arco "eco" con la abertura levemente desplazada.
+
+---
+
 # Cambios v25.4
 
 - **Arreglado el congelamiento al matar a un jefe** (todos los jefes, incluido EL INVASOR): al llegar la vida a 0, `choque.js` vaciaba el arreglo de balas desde dentro del bucle de disparos de `juego.js`, lo que producía un error (`bullets[i]` indefinido) y detenía el juego antes de empezar el choque de poderes. Ahora la limpieza de balas se hace en el primer cuadro del choque (`choque.js`) y el bucle de balas ignora entradas vacías (`juego.js`).
