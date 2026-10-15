@@ -1,5 +1,5 @@
 # Cómo publicar (Vercel + GitHub)
-
+bruhxd
 1. Sube esta carpeta a un repositorio de GitHub (git push o "Upload files").
 2. En vercel.com: Add New > Project > importa el repositorio > Framework "Other" > Deploy.
 3. En el proyecto de Vercel: Storage > Create Database > Neon (Postgres) > Connect to Project.
