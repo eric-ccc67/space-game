@@ -1,3 +1,18 @@
+# Cambios v27 — Bombas renovadas
+
+- **Stock máximo de 4 bombas** (`BOMB_MAX`). Cada `GRAZE_MAX` puntos de graze (balas rozadas y gemas verdes) rellenan 1 bomba; con 4 en stock el graze ya no se acumula. Usar una bomba gasta 1 y conserva el progreso de graze. Los HUD muestran 4 estrellas de stock y la barra de progreso hacia la siguiente. El botón táctil muestra `BOMBA xN`.
+- **Una bomba distinta por nave** (módulo `bombas.js` al final de `juego.js`). Durante la bomba eres invulnerable y los rayos/ondas enemigos quedan inofensivos:
+  - Tanque: FORTALEZA DE ACERO (3 ondas sísmicas hexagonales + blindaje renovado)
+  - Sniper: EJECUCIÓN ORBITAL (mira que marca blancos y rayos desde el cielo)
+  - Ligera: CORTES RELÁMPAGO (cortes de luz que cruzan la pantalla)
+  - Omega: SINGULARIDAD DE PLASMA (agujero negro que absorbe balas y colapsa en una nova)
+  - Reimu (Touhou 6): sin Shift 霊符「夢想封印」Fantasy Seal (orbes de colores teledirigidos) · con Shift 霊符「封魔陣」Evil-Sealing Circle (círculo de talismanes)
+  - Marisa (Touhou 6): sin Shift 魔符「スターダストレヴァリエ」Stardust Reverie (lluvia de estrellas) · con Shift 恋符「マスタースパーク」Master Spark (rayo + círculo mágico)
+  - Goku: KAMEHAMEHA (con marco de ataque) · otras naves: NOVA ESTELAR
+- La Supernova del modo Caos lanza una bomba gratis sin gastar stock; la recompensa del bonus da +1 bomba y la mejora "Bomba lista" de la tienda empieza con 1.
+
+---
+
 # Cambios v26
 
 - **Velocidad estable en cualquier teléfono** (`juego.js`, inicio del archivo): el juego avanzaba "por cuadro", así que en pantallas de 90/120/144 Hz el menú y el gameplay iban 1.5-2.4x más rápido. Un limitador de cuadros (60 ticks/s) deja todo a la velocidad correcta sin importar los Hz.

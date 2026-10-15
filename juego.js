@@ -701,7 +701,24 @@ let chargeStart = 0;
 let powerPoints = 0;
 let grazePoints = 0;
 const GRAZE_MAX = 230; // Puntos de graze necesarios para activar la bomba (antes 350)
-let mPromptActive = false;
+let mPromptActive = false;   // v27: = "hay al menos 1 bomba en el stock" (todos los HUD lo siguen usando)
+// v27: STOCK DE BOMBAS (máx. 4). Cada GRAZE_MAX puntos de graze rellenan 1 bomba; useBomb() gasta 1.
+const BOMB_MAX = 4;
+let bombStock = 0;
+function setBombStock(n) {
+    bombStock = Math.max(0, Math.min(BOMB_MAX, n | 0));
+    mPromptActive = bombStock > 0;
+    try { if (!mPromptActive) document.getElementById('btnBomb').classList.remove('bomb-ready'); } catch (e) {}
+}
+function addGraze(n) {
+    if (bombStock >= BOMB_MAX) { grazePoints = 0; return; }              // stock lleno: el graze ya no se acumula
+    grazePoints += n;
+    let gained = false;
+    while (grazePoints >= GRAZE_MAX && bombStock < BOMB_MAX) { grazePoints -= GRAZE_MAX; setBombStock(bombStock + 1); gained = true; }
+    if (bombStock >= BOMB_MAX) grazePoints = 0;
+    if (gained) { try { playShootSound(); } catch (e) {} }
+}
+const bombFrac = () => (bombStock >= BOMB_MAX ? 1 : Math.max(0, Math.min(1, grazePoints / GRAZE_MAX)));   // progreso hacia la siguiente bomba
 let bombEffect = { active: false, radius: 0, maxRadius: 0, x: 0, y: 0 }; 
 
 let partnerPoints = 0;
@@ -3904,10 +3921,7 @@ function collectPointItem(pt) {
             playShootSound();
         }
     } else if (pt.type === 'graze') {
-        if (!mPromptActive) { 
-            grazePoints += 10;
-            if (grazePoints >= GRAZE_MAX) { grazePoints = GRAZE_MAX; mPromptActive = true; playShootSound(); }
-        }
+        if (bombStock < BOMB_MAX) addGraze(10);
     } else if (pt.type === 'pixel') {
         partnerPoints += 15;
         if (partnerPoints >= 150) {
@@ -4332,7 +4346,7 @@ function drawHudVertical() {
     let bombLit = mPromptActive && (Math.floor(Date.now()/150)%2===0);
     drawStarIcon(px + 4, y + 12, 6, bombLit ? '#ff0' : '#444');
     ctx.fillStyle = mPromptActive ? '#ff0' : '#556'; ctx.font = `${fs*0.65}px "Press Start 2P"`;
-    ctx.fillText(mPromptActive ? '¡LISTA! (Z)' : 'cargando...', px + 20, y + 16);
+    ctx.fillText(mPromptActive ? ('x' + bombStock + ' (Z)') : 'cargando...', px + 20, y + 16);
 
     y += 32;
     ctx.font = `${fs*0.8}px "Press Start 2P"`;
@@ -4450,7 +4464,7 @@ function drawHudSide() {
     y += 20;
     ctx.fillStyle = '#aaa'; ctx.fillText('Bomb', px, y);
     ctx.fillStyle = mPromptActive ? (Math.floor(Date.now()/150)%2===0 ? '#ff0' : '#f00') : '#555';
-    ctx.fillText(mPromptActive ? 'LISTA (Z)' : '---', px + 55, y);
+    ctx.fillText(mPromptActive ? ('x' + bombStock + ' (Z)') : '---', px + 55, y);
 
     y += 26;
     ctx.fillStyle = '#f55'; ctx.fillText('Power', px, y);
@@ -4466,7 +4480,7 @@ function drawHudSide() {
     ctx.fillText(`${pad(grazePoints,0)}/${GRAZE_MAX}`, uiX + uiW - 12, y);
     ctx.font = `${fs}px "Press Start 2P"`; ctx.textAlign = 'left';
     y += 8;
-    drawBar(px, y, barW, 10, grazePoints/GRAZE_MAX, mPromptActive ? (Math.floor(Date.now()/100)%2===0 ? '#ff0' : '#f00') : '#3f3');
+    drawBar(px, y, barW, 10, bombFrac(), mPromptActive ? (Math.floor(Date.now()/100)%2===0 ? '#ff0' : '#f00') : '#3f3');
 
     y += 26;
     ctx.fillStyle = '#5cf'; ctx.fillText('Partner', px, y);
@@ -4557,7 +4571,7 @@ function drawHudBottom() {
     drawBar(8, barY, colW - 16, barH, powerPoints/150, '#f33');
 
     ctx.fillStyle = '#5f5'; ctx.fillText('GRAZE', colW + 8, barY - 2);
-    drawBar(colW + 8, barY, colW - 16, barH, grazePoints/GRAZE_MAX, mPromptActive ? (Math.floor(Date.now()/100)%2===0 ? '#ff0' : '#f00') : '#3f3');
+    drawBar(colW + 8, barY, colW - 16, barH, bombFrac(), mPromptActive ? (Math.floor(Date.now()/100)%2===0 ? '#ff0' : '#f00') : '#3f3');
 
     ctx.fillStyle = '#5cf'; ctx.fillText('PARTNER', colW*2 + 8, barY - 2);
     drawBar(colW*2 + 8, barY, colW - 16, barH, partnerPoints/150, '#0cf');
@@ -4572,7 +4586,7 @@ function drawHudBottom() {
     let levelDisplayNumBottom = ((currentWave - 1) % activeLevelCount()) + 1;
     ctx.fillText(`NIVEL ${levelDisplayNumBottom}/${activeLevelCount()}`, canvas.width * 0.42, y2);
     ctx.fillStyle = mPromptActive ? (Math.floor(Date.now()/150)%2===0 ? '#ff0' : '#f00') : '#555';
-    ctx.fillText(mPromptActive ? 'BOMBA!' : 'Bomb --', canvas.width * 0.75, y2);
+    ctx.fillText(mPromptActive ? ('BOMBA x' + bombStock) : 'Bomb --', canvas.width * 0.75, y2);
 }
 
 function initGame() {
@@ -4597,7 +4611,7 @@ function initGame() {
     pointItems = []; dopamineParticles = []; partners = [];
     reviveAnim = null; lastDeathData = null;
     powerUps = { shield: 0, doubleFire: 0, paralyze: 0, superShot: 0 };
-    powerPoints = 0; grazePoints = 0; partnerPoints = 0; mPromptActive = false;
+    powerPoints = 0; grazePoints = 0; partnerPoints = 0; setBombStock(0); if (window.BombFX) BombFX.reset();
     powerLevel = 1; enemiesDefeatedForPower = 0; levelUpFlash = 0;
     continuesLeft = MAX_CONTINUES; continueState = null;
 
@@ -4703,6 +4717,7 @@ function gameLoop() {
     enemyAnimTimer++;
     if (enemyAnimTimer > 10) { currentEnemyFrame = (currentEnemyFrame + 1) % 3; enemyAnimTimer = 0; }
 
+    if (window.BombFX) { BombFX.update(); BombFX.under(); }
     if (window.ShipFX) ShipFX.under();
     player.update();
     player.draw();
@@ -4937,7 +4952,7 @@ function gameLoop() {
             }
         }
 
-        if (bombEffect.active) {
+        if (bombEffect.active && !bombEffect.custom) {
             ctx.beginPath(); ctx.arc(bombEffect.x, bombEffect.y, bombEffect.radius, 0, Math.PI*2);
             let gradient = ctx.createRadialGradient(bombEffect.x, bombEffect.y, bombEffect.radius * 0.1, bombEffect.x, bombEffect.y, bombEffect.radius);
             gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)'); 
@@ -5167,7 +5182,7 @@ function gameLoop() {
             } else if (currentMode !== 'clasico') {
                 let grazeMargin = 25;
                 if (b.x < player.x + player.width + grazeMargin && b.x + b.width > player.x - grazeMargin && b.y < player.y + player.height + grazeMargin && b.y + b.height > player.y - grazeMargin) {
-                    if (!b.grazed && !mPromptActive) { b.grazed = true; grazePoints += (player.type === 3 ? 2 : 1); Extras.onGraze(); if (grazePoints >= GRAZE_MAX) { grazePoints = GRAZE_MAX; mPromptActive = true; playShootSound(); } }
+                    if (!b.grazed && bombStock < BOMB_MAX) { b.grazed = true; addGraze(player.type === 3 ? 2 : 1); Extras.onGraze(); }
                 }
             }
         }
@@ -5341,6 +5356,7 @@ function gameLoop() {
         }
     }
 
+    if (window.BombFX) BombFX.over();   // v27: efectos de las bombas (encima de todo)
     if (window.Caos) Caos.frame();   // efectos de los poderes caóticos
     if (window.ShipFX) ShipFX.afterFrame();
     Extras.afterFrame();
@@ -5423,26 +5439,18 @@ function stopShoot() {
     }
 }
 
-function useBomb() {
+function useBomb(free) {
     if (reviveAnim) return;
     if (Extras.busy()) { Extras.retroJump(); return; }
-    if (mPromptActive && isPlaying && currentMode !== 'clasico') {
-        mPromptActive = false; grazePoints = 0; document.getElementById('btnBomb').classList.remove('bomb-ready');
-        Extras.onBomb();
-        if (player.type === 6 && window.ShipFX) ShipFX.masterSpark();
-        if (player.type === 7 && window.GokuFX) GokuFX.kamehameha();      // Goku: KAMEHAMEHA
-        
-        bombEffect = { active: true, radius: 10, maxRadius: Math.max(playAreaW, playAreaH) * 1.5, x: player.x + player.width/2, y: player.y + player.height/2 };
-        enemyBullets = []; 
-        playExplosionSound();
-        setTimeout(playExplosionSound, 100);
-        setTimeout(playExplosionSound, 200);
-        screenShake = 60;
-        
-        for(let k=0; k<perfCount(100); k++) {
-            dopamineParticles.push(new DopamineParticle(bombEffect.x, bombEffect.y, true, true));
-        }
+    if (!isPlaying || currentMode === 'clasico') return;
+    if (window.BombFX && BombFX.active() && !free) return;             // una bomba a la vez
+    if (!free) {
+        if (bombStock <= 0) return;
+        setBombStock(bombStock - 1);                                    // gasta 1 del stock (el graze acumulado se conserva)
     }
+    try { document.getElementById('btnBomb').classList.toggle('bomb-ready', bombStock > 0); } catch (e) {}
+    Extras.onBomb();
+    BombFX.start();                                                    // v27: bomba propia de cada nave (bombas.js)
 }
 
 
@@ -5688,7 +5696,7 @@ function reviveFromContinue() {
     lives = n;
     // Se pierde todo menos los partners
     powerLevel = 1; enemiesDefeatedForPower = 0; levelUpFlash = 0;
-    powerPoints = 0; grazePoints = 0; mPromptActive = false;
+    powerPoints = 0; grazePoints = 0; setBombStock(0); if (window.BombFX) BombFX.reset();
     bullets = []; enemyBullets = [];
     try { player.resetPosition(); } catch (e) {}
     continueState = null;
@@ -9001,7 +9009,7 @@ const Extras = (function () {
         ['shield', 'doubleFire', 'paralyze', 'superShot'].concat(window.Caos ? Caos.keys : []).forEach(k => { if (powerUps[k] > warp.enter) powerUps[k] += dt; });
         enemyBullets = [];
         invulnerableUntil = Date.now() + 2500;
-        if (warp.reward) { mPromptActive = true; grazePoints = GRAZE_MAX; powerUps.shield = Math.max(powerUps.shield, Date.now() + 5000); toast('RECOMPENSA DEL BONUS', 'Bomba lista + escudo 5 s', '', '#ffd84a'); }
+        if (warp.reward) { setBombStock(bombStock + 1); powerUps.shield = Math.max(powerUps.shield, Date.now() + 5000); toast('RECOMPENSA DEL BONUS', 'Bomba lista + escudo 5 s', '', '#ffd84a'); }
         warp = null; mode = 'none';
         try { updateMusicState(); } catch (e) {}
     }
@@ -10114,7 +10122,7 @@ const Shop = (function () {
                 lives = Math.min(MAX_LIVES, lives + lv('lives'));
                 const sh = [0, 6, 10, 15][lv('shield')]; if (sh) { powerUps.shield = Date.now() + sh * 1000; }
                 if (lv('atk')) powerLevel = Math.min(MAX_POWER_LEVEL, 1 + lv('atk') * 2);
-                if (lv('bomb')) { grazePoints = GRAZE_MAX; mPromptActive = true; }
+                if (lv('bomb')) { setBombStock(1); }
                 partners = []; for (let i = 0; i < lv('partner'); i++) partners.push(new Partner(i));
                 if (practiceStage && typeof TouhouUI !== 'undefined' && TouhouUI.practicePartners > 0) { partners = []; for (let i = 0; i < Math.min(6, TouhouUI.practicePartners); i++) partners.push(new Partner(i)); }   // Modo Práctica: cantidad elegida en el menú
             } catch (e) { console.warn('Shop.applyRun', e); }
@@ -11718,9 +11726,8 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
     }
 
     function grazeOnce(h) {
-        if (h.grazed || mPromptActive) return;
-        h.grazed = true; grazePoints += 1; Extras.onGraze();
-        if (grazePoints >= GRAZE_MAX) { grazePoints = GRAZE_MAX; mPromptActive = true; playShootSound(); }
+        if (h.grazed || bombStock >= BOMB_MAX) return;
+        h.grazed = true; addGraze(1); Extras.onGraze();
     }
 
     // iconos pixel-art (7x7) que identifican la función de cada enemigo
@@ -13479,10 +13486,7 @@ window.drawThemeBackground = drawRetroBG;
         pickSfx(type);
         banner = { t: 0, text: d.banner || d.name, c: d.c };
         if (type === 15) {                                   // Supernova: bomba instantánea (sin gastar la que ya tengas cargada)
-            const had = mPromptActive, g = grazePoints;
-            grazePoints = GRAZE_MAX; mPromptActive = true;
-            try { useBomb(); } catch (e) {}
-            if (had) { mPromptActive = true; grazePoints = g; }
+            try { useBomb(true); } catch (e) {}                 // v27: bomba gratis, no gasta el stock
             flash = 1; return;
         }
         powerUps[d.key] = now() + d.ms;
@@ -14902,10 +14906,13 @@ const HUD = (function () {
         // ---- Bomb (estrella verde; dorada y pulsante cuando la bomba está lista)
         const bomb = !!mPromptActive, bp = bomb ? 0.5 + 0.5 * Math.sin(t * 0.012) : st.bombFx;
         tt('Bomba', P, y, bomb ? '#fff27a' : '#a8ffbc', 11, 'left');
-        star(sx0 + 12, y - 4, 8 * (1 + bp * 0.25), bomb ? '#ffd02a' : '#35c85a', bomb ? '#fa0' : null, !bomb);
-        if (bomb) tt('LISTA [Z]', sx0 + 28, y, Math.floor(t / 130) % 2 ? '#ffee66' : '#fff', 9, 'left', { glow: '#fa0' });
+        for (let i = 0; i < BOMB_MAX; i++) {                                   // v27: 4 estrellas = stock de bombas
+            const on = i < bombStock;
+            star(sx0 + 12 + i * 15, y - 4, (on ? 6.5 : 5) * (1 + (on ? bp * 0.2 : 0)), on ? '#ffd02a' : '#3a4a40', on ? '#fa0' : null, !on);
+        }
+        if (bomb) tt('[Z]', P + IW2, y, Math.floor(t / 130) % 2 ? '#ffee66' : '#fff', 9, 'right', { glow: '#fa0' });
         else tt(grazePoints + '/' + GRAZE_MAX, P + IW2, y, '#c8f0cf', 9, 'right');
-        y += 8; tbar(P, y, IW2, 6, bomb ? 1 : grazePoints / GRAZE_MAX, bomb ? '#ffb000' : '#2fb34f', bomb ? '#fff27a' : '#8cff9d', 12); y += 20;
+        y += 8; tbar(P, y, IW2, 6, bombFrac(), bombStock >= BOMB_MAX ? '#ffb000' : '#2fb34f', bombStock >= BOMB_MAX ? '#fff27a' : '#8cff9d', 12); y += 20;
 
         // ---- Power (nivel de ataque 1-15): barra violeta como la de Touhou
         const maxed = powerLevel >= MAX_POWER_LEVEL;
@@ -15027,12 +15034,12 @@ const HUD = (function () {
         panel(px0, y, pw, bh, bomb ? '#fd2' : '#0cf', bomb ? 0.5 + 0.5 * Math.sin(t * 0.012) : st.partnerFx);
         const ostep = (pw - 8) / 6;
         for (let i = 0; i < 6; i++) orb(px0 + 4 + ostep / 2 + i * ostep, y + 10, 3.2, PCOL[i], i < partners.length, t);
-        txt(bomb ? '¡BOMBA! Z' : 'BOMBA ' + Math.floor(clamp(grazePoints / GRAZE_MAX, 0, 1) * 100) + '%', px0 + pw / 2, y + 26, bomb ? (Math.floor(t / 130) % 2 ? '#ff0' : '#fff') : '#9d9', 6, 'center', bomb ? '#fa0' : null);
+        txt(bomb ? ('BOMBA x' + bombStock + '  Z') : 'BOMBA ' + Math.floor(clamp(grazePoints / GRAZE_MAX, 0, 1) * 100) + '%', px0 + pw / 2, y + 26, bomb ? (Math.floor(t / 130) % 2 ? '#ff0' : '#fff') : '#9d9', 6, 'center', bomb ? '#fa0' : null);
         y += bh + 4;
 
         // fila C: barras power / graze / partner + nivel y tiempo
         const cw3 = (IW - 8) / 3;
-        [['POWER', powerPoints / 150, '#f33', '#f88'], ['GRAZE', grazePoints / GRAZE_MAX, bomb ? '#fd2' : '#3f3', '#8f8'], ['PARTNER', partners.length >= 6 ? 1 : partnerPoints / 150, '#0cf', '#8ef']].forEach((b, i) => {
+        [['POWER', powerPoints / 150, '#f33', '#f88'], ['GRAZE', bombFrac(), bomb ? '#fd2' : '#3f3', '#8f8'], ['PARTNER', partners.length >= 6 ? 1 : partnerPoints / 150, '#0cf', '#8ef']].forEach((b, i) => {
             const bx = P + i * (cw3 + 4);
             txt(b[0], bx, y + 7, b[3], 6, 'left');
             bar(bx, y + 10, cw3, 6, b[1], b[2], { glow: 4, seg: 8 });
@@ -15081,7 +15088,7 @@ const HUD = (function () {
         catch (e) { console.warn('HUD nuevo falló, uso el antiguo:', e); if (typeof orig === 'function') return orig.apply(this, arguments); }
         try {
             const b = document.getElementById('btnBomb');
-            if (b) { if (mPromptActive) b.classList.add('bomb-ready'); else b.classList.remove('bomb-ready'); }
+            if (b) { if (mPromptActive) b.classList.add('bomb-ready'); else b.classList.remove('bomb-ready'); try { const lab = b.querySelector('i'); if (lab && !(window.Extras && Extras.busy && Extras.busy())) { const tx = bombStock > 0 ? 'BOMBA x' + bombStock : 'BOMBA'; if (lab.textContent !== tx) lab.textContent = tx; } } catch (e) {} }
         } catch (e) {}
     };
 })();
@@ -16595,3 +16602,539 @@ window.Goku = Goku;
         }
     }, true);
 })();
+
+;
+/* ===== bombas.js ===== */
+// ============================================================================
+// bombas.js — BOMBAS RENOVADAS: una distinta por nave (v27)
+//   Stock máximo: 4 bombas (BOMB_MAX). Se rellenan con puntos de GRAZE (cada GRAZE_MAX = 1 bomba).
+//   1 Tanque  : FORTALEZA DE ACERO     · 3 ondas sísmicas hexagonales + blindaje renovado
+//   2 Sniper  : EJECUCIÓN ORBITAL      · marca blancos y los fulmina con rayos desde el cielo
+//   3 Ligera  : CORTES RELÁMPAGO       · cortes de luz que cruzan toda la pantalla
+//   4 Omega   : SINGULARIDAD DE PLASMA · agujero negro que absorbe las balas y colapsa en una nova
+//   5 Reimu   : sin Shift = 霊符「夢想封印」 Fantasy Seal (orbes de colores teledirigidos)   [Touhou 6]
+//               con Shift = 霊符「封魔陣」  Evil-Sealing Circle (círculo de talismanes)      [Touhou 6]
+//   6 Marisa  : sin Shift = 魔符「スターダストレヴァリエ」 Stardust Reverie (lluvia de estrellas) [Touhou 6]
+//               con Shift = 恋符「マスタースパーク」 Master Spark (el rayo de siempre + círculo mágico) [Touhou 6]
+//   7 Goku    : KAMEHAMEHA (goku.js) con marco de ataque
+//   otras     : NOVA ESTELAR
+// Durante la bomba eres invulnerable y las ondas/rayos enemigos quedan inofensivos (bombEffect.active).
+// ============================================================================
+const BombFX = (function () {
+    'use strict';
+    const TAU = Math.PI * 2;
+    let fx = null;
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const lite = () => (typeof performanceMode !== 'undefined' && performanceMode);
+    const isFocus = () => keys['ShiftLeft'] || keys['ShiftRight'] || (window.TouchInput && window.TouchInput.focus);
+    const PW = () => playAreaW, PH = () => playAreaH;
+    const bx = () => player.x + player.width / 2, by = () => player.y + player.height / 2;
+    const STAR_COLORS = ['#ff4a4a', '#ffd84a', '#5cff6e', '#4ad8ff', '#5a7bff', '#c45cff', '#ff6fd0', '#ffffff'];
+    const ORB_COLORS = ['#ff4040', '#4aa8ff', '#4cff6a', '#ffe84a', '#c35bff', '#4affff', '#ff9a3c', '#ff6fd0'];
+
+    // ------------------------------------------------------------------ daño y limpieza
+    function bossList() {
+        const r = [];
+        if (typeof activeBoss !== 'undefined' && activeBoss && activeBoss.state === 'active') r.push(activeBoss);
+        if (typeof activeMiniBoss !== 'undefined' && activeMiniBoss && activeMiniBoss.state === 'active') r.push(activeMiniBoss);
+        return r;
+    }
+    function hurtEnemy(e, d) {
+        const j = enemies.indexOf(e); if (j < 0) return;
+        e.hp -= d / enemyDefenseFactor();
+        if (e.hp <= 0) {
+            createExplosion(e.x + e.width / 2, e.y + e.height / 2, e.color, lite() ? 30 : 70);
+            score += e.type * 50; minionReward(e); enemies.splice(j, 1);
+            levelEnemiesDefeated++; Extras.onKill(); if (e.role && window.WaveAttacks) WaveAttacks.onEnemyDeath(e);
+            addAttackProgress(1);
+            for (let k = 0; k < perfCount(10); k++) dopamineParticles.push(new DopamineParticle(e.x + e.width / 2, e.y + e.height / 2, false));
+        }
+    }
+    function hurtBoss(b, d) {
+        b.hp -= d * (b.defenseMult || 1) / bossDefenseFactor();
+        if (b.levelIdx === 6 && Math.random() < 0.5) { try { bossBloodSpurt(b, b.x + Math.random() * b.width, b.y + b.height * 0.8, 2); } catch (e) {} }
+        if (b.hp <= 0) { if (b === activeBoss) defeatBoss(b); else if (b === activeMiniBoss) defeatMiniBoss(); }
+    }
+    function circleRect(x, y, r, o) {
+        const nx = Math.max(o.x, Math.min(x, o.x + o.width)), ny = Math.max(o.y, Math.min(y, o.y + o.height));
+        return Math.hypot(x - nx, y - ny) < r;
+    }
+    // daño en un círculo; "mark" (Set) evita golpear dos veces al mismo objetivo
+    function areaDamage(x, y, r, de, db, mark) {
+        for (let j = enemies.length - 1; j >= 0; j--) {
+            const e = enemies[j]; if (!e || (mark && mark.has(e))) continue;
+            if (Math.hypot(e.x + e.width / 2 - x, e.y + e.height / 2 - y) < r + Math.max(e.width, e.height) * 0.4) { if (mark) mark.add(e); hurtEnemy(e, de); }
+        }
+        for (const b of bossList()) { if (mark && mark.has(b)) continue; if (circleRect(x, y, r, b)) { if (mark) mark.add(b); hurtBoss(b, db); } }
+    }
+    function clearBulletsIn(x, y, r) { for (let j = enemyBullets.length - 1; j >= 0; j--) { const b = enemyBullets[j]; if (Math.hypot(b.x - x, b.y - y) < r) enemyBullets.splice(j, 1); } }
+    function clearAllBullets() { enemyBullets = []; }
+    function nearestTarget(x, y, skip) {
+        let best = null, bd = 1e9;
+        for (const e of enemies) {
+            if (skip && skip.has(e)) continue;
+            if (e.y + e.height < 0 || e.y > PH()) continue;
+            const d = Math.hypot(e.x + e.width / 2 - x, e.y + e.height / 2 - y); if (d < bd) { bd = d; best = { x: e.x + e.width / 2, y: e.y + e.height / 2, o: e }; }
+        }
+        for (const b of bossList()) { const d = Math.hypot(b.x + b.width / 2 - x, b.y + b.height / 2 - y) - 40; if (d < bd) { bd = d; best = { x: b.x + b.width / 2, y: b.y + b.height / 2, o: b }; } }
+        return best;
+    }
+    function ring(x, y, max, speed, c, w) { fx.rings.push({ x, y, r: 6, max, speed, c, w: w || 6, a: 1 }); }
+
+    // ------------------------------------------------------------------ dibujo común
+    function star5(x, y, r, rot, fill, glow) {
+        ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+        if (glow && !lite()) { ctx.shadowColor = glow; ctx.shadowBlur = 10; }
+        ctx.beginPath();
+        for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+        ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.arc(0, 0, r * 0.25, 0, TAU); ctx.fill();
+        ctx.restore();
+    }
+    function glowDot(x, y, r, c) {
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, '#fff'); g.addColorStop(0.3, c); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    }
+    function drawRings() {
+        for (const r of fx.rings) {
+            if (r.r <= 0) continue;
+            ctx.globalAlpha = Math.max(0, r.a); ctx.strokeStyle = r.c; ctx.lineWidth = r.w * (0.4 + 0.6 * r.a);
+            ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, TAU); ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+    }
+    function banner() {
+        if (!fx.name || fx.t > 130) return;
+        const W = PW(), kb = Math.max(1, Math.min(1.4, 1 / (typeof viewScale === 'number' && viewScale > 0 ? viewScale : 1)));
+        const a = fx.t < 12 ? fx.t / 12 : (fx.t > 105 ? Math.max(0, (130 - fx.t) / 25) : 1);
+        const slide = (1 - Math.min(1, fx.t / 14)) * 40;
+        const h = 36 * kb, y = 8 - slide;
+        ctx.save(); ctx.globalAlpha = a;
+        const g = ctx.createLinearGradient(0, 0, W, 0);
+        g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.15, 'rgba(0,0,0,0.72)'); g.addColorStop(0.85, 'rgba(0,0,0,0.72)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.fillRect(0, y, W, h);
+        ctx.strokeStyle = fx.col; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(W * 0.1, y); ctx.lineTo(W * 0.9, y); ctx.moveTo(W * 0.1, y + h); ctx.lineTo(W * 0.9, y + h); ctx.stroke();
+        ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+        ctx.font = Math.round(12 * kb) + 'px "Press Start 2P", sans-serif'; ctx.fillText(fx.name, W / 2, y + 16 * kb);
+        ctx.fillStyle = fx.col; ctx.font = Math.round(7 * kb) + 'px "Press Start 2P", sans-serif'; ctx.fillText(fx.sub, W / 2, y + 30 * kb);
+        ctx.restore();
+    }
+
+    // ------------------------------------------------------------------ INICIO
+    const DEF = {
+        fantasy: { name: '霊符「夢想封印」', sub: 'SIGNO ESPIRITUAL: SELLO DE FANTASIA', col: '#ff7a7a', base: [5, 8] },
+        seal:    { name: '霊符「封魔陣」', sub: 'SIGNO ESPIRITUAL: CIRCULO SELLADOR', col: '#ff5a5a', base: [5, 8] },
+        stardust:{ name: '魔符「スターダストレヴァリエ」', sub: 'SIGNO MAGICO: ENSUENO DE POLVO ESTELAR', col: '#ffd84a', base: [5, 8] },
+        master:  { name: '恋符「マスタースパーク」', sub: 'SIGNO DEL AMOR: MASTER SPARK', col: '#c9a0ff', base: [5, 8] },
+        tank:    { name: 'FORTALEZA DE ACERO', sub: 'ONDAS SISMICAS + BLINDAJE RENOVADO', col: '#7ff', base: [6, 10] },
+        sniper:  { name: 'EJECUCION ORBITAL', sub: 'BLANCOS MARCADOS DESDE EL CIELO', col: '#ff6a6a', base: [4, 6] },
+        light:   { name: 'CORTES RELAMPAGO', sub: 'ESTELAS DE LUZ A TODA VELOCIDAD', col: '#ffe14a', base: [5, 8] },
+        omega:   { name: 'SINGULARIDAD DE PLASMA', sub: 'ABSORBE LAS BALAS Y COLAPSA', col: '#ff9a3a', base: [3, 5] },
+        goku:    { name: 'KAMEHAMEHA', sub: 'かめはめ波', col: '#5ad0ff', base: [10, 10] },
+        nova:    { name: 'NOVA ESTELAR', sub: 'ONDA DE ENERGIA TOTAL', col: '#8ff', base: [10, 18] }
+    };
+
+    function kindFor() {
+        const t = player.type, foc = isFocus();
+        if (t === 1) return 'tank'; if (t === 2) return 'sniper'; if (t === 3) return 'light'; if (t === 4) return 'omega';
+        if (t === 5) return foc ? 'seal' : 'fantasy';
+        if (t === 6) return foc ? 'master' : 'stardust';
+        if (t === 7) return 'goku';
+        return 'nova';
+    }
+
+    function start() {
+        const kind = kindFor(), d = DEF[kind], x = bx(), y = by();
+        fx = { kind, t: 0, x, y, name: d.name, sub: d.sub, col: d.col, rings: [], mark: new Set(), dur: 120, parts: [] };
+        bombEffect = { active: true, custom: true, radius: 0, maxRadius: 0, x, y };
+        invulnerableUntil = Math.max(invulnerableUntil, Date.now() + 1500);
+        // golpe base a toda la pantalla (la bomba siempre limpia lo débil)
+        for (let j = enemies.length - 1; j >= 0; j--) hurtEnemy(enemies[j], d.base[0]);
+        for (const b of bossList()) hurtBoss(b, d.base[1]);
+        try { playExplosionSound(); setTimeout(playExplosionSound, 120); } catch (e) {}
+        screenShake = Math.max(screenShake, 18);
+        const init = INIT[kind]; if (init) init();
+        if (kind !== 'omega') clearAllBullets();
+    }
+
+    // ------------------------------------------------------------------ efectos por nave
+    const INIT = {
+        // ---- Reimu A · Fantasy Seal: 8 orbes de colores que persiguen enemigos
+        fantasy() {
+            fx.dur = 340; fx.orbs = [];
+            for (let i = 0; i < 8; i++) {
+                const a = -Math.PI / 2 + i * TAU / 8;
+                fx.orbs.push({ x: fx.x + Math.cos(a) * 26, y: fx.y + Math.sin(a) * 26, vx: Math.cos(a) * 3.2, vy: Math.sin(a) * 3.2, c: ORB_COLORS[i], age: -i * 5, hits: 0, cool: 0, tr: [], dead: false });
+            }
+            ring(fx.x, fx.y, 260, 9, '#ff9aa8', 7);
+        },
+        // ---- Reimu B · Evil-Sealing Circle: gran círculo de talismanes que sigue a Reimu
+        seal() { fx.dur = 190; fx.R = 0; fx.rot = 0; ring(fx.x, fx.y, 320, 10, '#ff6a6a', 8); },
+        // ---- Marisa A · Stardust Reverie: lluvia de estrellas de colores
+        stardust() { fx.dur = 170; fx.stars = []; ring(fx.x, fx.y, 280, 11, '#ffe27a', 7); },
+        // ---- Marisa B · Master Spark (rayo existente) + círculo mágico
+        master() { fx.dur = 172; fx.rot = 0; if (window.ShipFX) ShipFX.masterSpark(); invulnerableUntil = Math.max(invulnerableUntil, Date.now() + 3000); },
+        // ---- Goku · Kamehameha (goku.js)
+        goku() { fx.dur = 150; if (window.GokuFX) GokuFX.kamehameha(); invulnerableUntil = Math.max(invulnerableUntil, Date.now() + 2800); },
+        // ---- Tanque · Fortaleza de acero
+        tank() {
+            fx.dur = 120; fx.waves = [0, 24, 48].map(s => ({ s, r: 0, done: false }));
+            player.armorReady = true; player.armorFlash = -30;
+            powerUps.shield = Math.max(powerUps.shield, Date.now() + 4000);
+        },
+        // ---- Sniper · Ejecución orbital
+        sniper() {
+            const tg = []; const used = new Set();
+            for (let i = 0; i < 9; i++) { const t = nearestTarget(fx.x, fx.y - 80, used); if (!t) break; used.add(t.o); tg.push({ x: t.x, y: t.y, o: t.o }); }
+            for (const b of bossList()) { for (let k = 0; k < 3; k++) tg.push({ x: b.x + b.width * (0.2 + 0.3 * k), y: b.y + b.height * 0.5, o: b }); }
+            while (tg.length < 7) tg.push({ x: rnd(40, PW() - 40), y: rnd(40, PH() * 0.65), o: null });
+            tg.sort(() => Math.random() - 0.5);
+            fx.tg = tg.slice(0, 12).map((t, i) => ({ x: t.x, y: t.y, lock: i * 7, hit: i * 7 + 30, done: false }));
+            fx.dur = fx.tg[fx.tg.length - 1].hit + 36;
+        },
+        // ---- Ligera · Cortes relámpago
+        light() {
+            fx.dur = 130; fx.sl = [];
+            const n = 7;
+            for (let i = 0; i < n; i++) {
+                fx.sl.push({ s: 6 + i * 14, y: PH() * (0.1 + 0.8 * (i + 0.5) / n) + rnd(-18, 18), a: (i % 2 ? -1 : 1) * rnd(0.12, 0.3), dir: i % 2 ? -1 : 1, mark: new Set() });
+            }
+            player.trail = player.trail || [];
+        },
+        // ---- Omega · Singularidad de plasma
+        omega() {
+            fx.dur = 125; fx.hx = fx.x; fx.hy = Math.max(90, Math.min(fx.y - 190, PH() * 0.45)); fx.hr = 4; fx.collapsed = false; fx.sw = 0;
+            fx.swirl = []; for (let i = 0; i < (lite() ? 20 : 46); i++) fx.swirl.push({ a: rnd(0, TAU), d: rnd(40, 170), s: rnd(0.04, 0.09) });
+        },
+        // ---- Nave estándar · Nova estelar
+        nova() { fx.dur = 80; ring(fx.x, fx.y, 900, 22, '#8ff', 10); fx.rings.push({ x: fx.x, y: fx.y, r: -14, max: 900, speed: 22, c: '#f8f', w: 7, a: 1 }); fx.rings.push({ x: fx.x, y: fx.y, r: -30, max: 900, speed: 22, c: '#fff', w: 5, a: 1 }); fx.rot = 0; }
+    };
+
+    const UPD = {
+        fantasy() {
+            let alive = 0;
+            for (const o of fx.orbs) {
+                if (o.dead) continue;
+                o.age++; if (o.age < 0) { alive++; continue; }
+                alive++; o.cool = Math.max(0, o.cool - 1);
+                const tg = nearestTarget(o.x, o.y), sp = Math.min(9, 3.2 + o.age * 0.12);
+                const gx = tg ? tg.x : PW() / 2, gy = tg ? tg.y : PH() * 0.25;
+                const dx = gx - o.x, dy = gy - o.y, d = Math.hypot(dx, dy) || 1;
+                o.vx += (dx / d * sp - o.vx) * 0.12; o.vy += (dy / d * sp - o.vy) * 0.12;
+                o.x += o.vx; o.y += o.vy;
+                o.tr.push({ x: o.x, y: o.y }); if (o.tr.length > 12) o.tr.shift();
+                if (tg && o.cool === 0 && d < 30 + (tg.o.width ? Math.max(tg.o.width, tg.o.height) * 0.4 : 20)) {
+                    fx.rings.push({ x: o.x, y: o.y, r: 8, max: 84, speed: 5, c: o.c, w: 6, a: 1 });
+                    areaDamage(o.x, o.y, 78, 9, 15, null);
+                    clearBulletsIn(o.x, o.y, 110);
+                    createExplosion(o.x, o.y, o.c, 10, true); screenShake = Math.max(screenShake, 4);
+                    o.hits++; o.cool = 14; if (o.hits >= 3) o.dead = true;
+                }
+                if (o.age > 300) o.dead = true;
+            }
+            if (fx.t > 70 && alive === 0) fx.t = fx.dur;
+        },
+        seal() {
+            fx.x = bx(); fx.y = by(); fx.rot += 0.035;
+            const grow = Math.min(1, fx.t / 34), hold = fx.t < 155;
+            fx.R = hold ? 205 * (1 - Math.pow(1 - grow, 3)) * (1 + 0.03 * Math.sin(fx.t * 0.3)) : fx.R;
+            if (hold) {
+                clearBulletsIn(fx.x, fx.y, fx.R + 14);
+                if (fx.t % 6 === 0) { const m = new Set(); areaDamage(fx.x, fx.y, fx.R, 3.2, 2.6, m); }
+            }
+            if (fx.t === 155) { ring(fx.x, fx.y, 900, 24, '#fff', 10); ring(fx.x, fx.y, 900, 20, '#ff6a6a', 8); screenShake = Math.max(screenShake, 16); }
+            if (fx.t >= 155) {
+                const r = (fx.t - 155) * 24; clearBulletsIn(fx.x, fx.y, r + 20);
+                areaDamage(fx.x, fx.y, r, 10, 22, fx.mark);
+            }
+        },
+        stardust() {
+            fx.x = bx(); fx.y = by();
+            if (fx.t < 125) {
+                const n = lite() ? 2 : 3;
+                for (let i = 0; i < n; i++) {
+                    const up = Math.random() < 0.65, a = up ? -Math.PI / 2 + rnd(-1.25, 1.25) : rnd(0, TAU), sp = rnd(4.5, 10);
+                    fx.stars.push({ x: fx.x, y: fx.y - 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: rnd(7, 15), c: STAR_COLORS[(Math.random() * STAR_COLORS.length) | 0], rot: rnd(0, TAU), vr: rnd(-0.2, 0.2), life: 95, bounce: 2, tr: [] });
+                }
+            }
+            if (fx.t < 150) clearAllBullets();
+            for (let i = fx.stars.length - 1; i >= 0; i--) {
+                const s = fx.stars[i]; s.life--; s.x += s.vx; s.y += s.vy; s.rot += s.vr;
+                s.tr.push({ x: s.x, y: s.y }); if (s.tr.length > 6) s.tr.shift();
+                if ((s.x < 6 && s.vx < 0) || (s.x > PW() - 6 && s.vx > 0)) { if (s.bounce-- > 0) s.vx *= -1; else s.life = 0; }
+                if (s.y < 6 && s.vy < 0) { if (s.bounce-- > 0) s.vy *= -1; else s.life = 0; }
+                if (s.y > PH() + 20) s.life = 0;
+                let hit = false;
+                for (let j = enemies.length - 1; j >= 0 && !hit; j--) {
+                    const e = enemies[j];
+                    if (circleRect(s.x, s.y, s.r, e)) { hurtEnemy(e, 3); hit = true; }
+                }
+                if (!hit) for (const b of bossList()) if (circleRect(s.x, s.y, s.r, b)) { hurtBoss(b, 1.5); hit = true; break; }
+                if (hit) { createExplosion(s.x, s.y, s.c, 4, true); if (Math.random() < 0.7) s.life = 0; }
+                if (s.life <= 0) fx.stars.splice(i, 1);
+            }
+        },
+        master() {
+            fx.x = bx(); fx.y = by(); fx.rot += 0.03;
+            if (fx.t < 100) screenShake = Math.max(screenShake, 3);
+        },
+        goku() { fx.x = bx(); fx.y = by(); if (fx.t < 140 && fx.t % 4 === 0) clearBulletsIn(fx.x, fx.y - 140, 140); },
+        tank() {
+            fx.x = bx(); fx.y = by();
+            for (const w of fx.waves) {
+                if (fx.t < w.s) continue;
+                if (fx.t === w.s) { screenShake = Math.max(screenShake, 14); try { playExplosionSound(); } catch (e) {} }
+                w.r += 15 + (fx.t - w.s) * 0.1;
+                clearBulletsIn(fx.x, fx.y, w.r + 14);
+                const m = w.m || (w.m = new Set()); areaDamage(fx.x, fx.y, w.r, 7, 18, m);
+            }
+        },
+        sniper() {
+            for (const t of fx.tg) {
+                if (!t.done && fx.t >= t.hit) {
+                    t.done = true; screenShake = Math.max(screenShake, 7);
+                    areaDamage(t.x, t.y, 42, 14, 28, null); clearBulletsIn(t.x, t.y, 110);
+                    createExplosion(t.x, t.y, '#aef', 14, true);
+                    fx.rings.push({ x: t.x, y: t.y, r: 8, max: 96, speed: 6, c: '#aef', w: 6, a: 1 });
+                }
+            }
+            if (fx.t === fx.dur - 30) { clearAllBullets(); screenShake = Math.max(screenShake, 10); }
+        },
+        light() {
+            fx.x = bx(); fx.y = by();
+            for (const s of fx.sl) {
+                const k = fx.t - s.s; if (k < 0 || k > 10) continue;
+                const L = PW() * 0.75, head = (-L + 2 * L * (k / 9)) * s.dir, ca = Math.cos(s.a), sa = Math.sin(s.a);
+                const nx = -sa, ny = ca;
+                const test = (ox, oy, pad) => {
+                    const px = ox - PW() / 2, py = oy - s.y, along = (px * ca + py * sa) * s.dir, dist = Math.abs(px * nx + py * ny);
+                    return dist < 36 + pad && along <= head * s.dir + 30;
+                };
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const e = enemies[j]; if (s.mark.has(e)) continue;
+                    if (test(e.x + e.width / 2, e.y + e.height / 2, Math.max(e.width, e.height) * 0.4)) { s.mark.add(e); hurtEnemy(e, 9); }
+                }
+                for (const b of bossList()) if (!s.mark.has(b) && test(b.x + b.width / 2, b.y + b.height / 2, Math.max(b.width, b.height) * 0.45)) { s.mark.add(b); hurtBoss(b, 11); }
+                for (let j = enemyBullets.length - 1; j >= 0; j--) if (test(enemyBullets[j].x, enemyBullets[j].y, 10)) enemyBullets.splice(j, 1);
+                if (k === 0) screenShake = Math.max(screenShake, 8);
+            }
+            if (fx.t === fx.dur - 20) clearAllBullets();
+        },
+        omega() {
+            const hx = fx.hx, hy = fx.hy;
+            if (fx.t < 72) {
+                fx.hr = 4 + 40 * Math.min(1, fx.t / 50);
+                for (let j = enemyBullets.length - 1; j >= 0; j--) {
+                    const b = enemyBullets[j], dx = hx - b.x, dy = hy - b.y, d = Math.hypot(dx, dy) || 1, sp = Math.min(16, 4 + fx.t * 0.18 + 900 / d);
+                    b.x += dx / d * sp; b.y += dy / d * sp;
+                    if (d < fx.hr * 0.8) enemyBullets.splice(j, 1);
+                }
+                for (const e of enemies) {                                 // arrastra levemente a los enemigos pequeños
+                    if (e.role === 'boss') continue;
+                    const dx = hx - (e.x + e.width / 2), dy = hy - (e.y + e.height / 2), d = Math.hypot(dx, dy) || 1;
+                    if (d < 260) { e.x += dx / d * 1.2; e.y += dy / d * 0.8; }
+                }
+                if (fx.t % 5 === 0) { const m = new Set(); areaDamage(hx, hy, fx.hr + 14, 2, 1.5, m); }
+            } else if (!fx.collapsed) {
+                fx.collapsed = true; screenShake = Math.max(screenShake, 26);
+                ring(hx, hy, 900, 24, '#ffd9a0', 12); ring(hx, hy, 900, 19, '#ff7a1a', 9);
+                try { playExplosionSound(); } catch (e) {}
+            }
+            if (fx.collapsed) {
+                fx.sw += 24; clearBulletsIn(hx, hy, fx.sw + 20);
+                areaDamage(hx, hy, fx.sw, 15, 38, fx.mark);
+                if (fx.sw > 950) clearAllBullets();
+            }
+        },
+        nova() {
+            fx.x = bx(); fx.y = by(); fx.rot += 0.05;
+            const r = fx.t * 22; clearBulletsIn(fx.x, fx.y, r + 20); areaDamage(fx.x, fx.y, r, 8, 20, fx.mark);
+        }
+    };
+
+    // ------------------------------------------------------------------ DIBUJO
+    function drawUnder() {
+        // oscurece un poco el fondo para que el efecto resalte
+        const k = fx.t < 10 ? fx.t / 10 : (fx.t > fx.dur - 20 ? Math.max(0, (fx.dur - fx.t) / 20) : 1);
+        ctx.save(); ctx.fillStyle = 'rgba(0,0,12,' + (0.34 * k).toFixed(3) + ')'; ctx.fillRect(0, 0, PW(), PH()); ctx.restore();
+        const D = DRAW_UNDER[fx.kind]; if (D) D();
+    }
+    const DRAW_UNDER = {
+        seal() {
+            const R = fx.R; if (R < 4) return;
+            ctx.save(); ctx.translate(fx.x, fx.y);
+            if (!lite()) ctx.globalCompositeOperation = 'lighter';
+            const g = ctx.createRadialGradient(0, 0, R * 0.1, 0, 0, R);
+            g.addColorStop(0, 'rgba(255,255,255,0.35)'); g.addColorStop(0.7, 'rgba(255,60,60,0.22)'); g.addColorStop(1, 'rgba(255,60,60,0)');
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fill();
+            ctx.strokeStyle = 'rgba(255,90,90,0.95)'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.stroke();
+            ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 0, R * 0.93, 0, TAU); ctx.stroke();
+            ctx.rotate(-fx.rot * 1.4); ctx.strokeStyle = 'rgba(255,140,140,0.9)'; ctx.lineWidth = 3;     // hexagrama
+            for (let s = 0; s < 2; s++) { ctx.beginPath(); for (let i = 0; i < 3; i++) { const a = s * Math.PI / 3 + i * TAU / 3 - Math.PI / 2; ctx.lineTo(Math.cos(a) * R * 0.8, Math.sin(a) * R * 0.8); } ctx.closePath(); ctx.stroke(); }
+            ctx.beginPath(); ctx.arc(0, 0, R * 0.42, 0, TAU); ctx.stroke();
+            ctx.restore();
+        },
+        master() {
+            ctx.save(); ctx.translate(fx.x, fx.y + 10); ctx.rotate(fx.rot);
+            const k = Math.min(1, fx.t / 18) * (fx.t > fx.dur - 20 ? (fx.dur - fx.t) / 20 : 1), R = 62 * k;
+            if (!lite()) ctx.globalCompositeOperation = 'lighter';
+            ctx.strokeStyle = 'rgba(210,160,255,' + (0.95 * k) + ')'; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.stroke();
+            ctx.beginPath(); for (let i = 0; i < 9; i++) { const a = i * TAU * 3 / 8 - Math.PI / 2; ctx.lineTo(Math.cos(a) * R, Math.sin(a) * R); } ctx.stroke();   // octagrama
+            ctx.strokeStyle = 'rgba(255,255,255,' + (0.8 * k) + ')'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 0, R * 0.62, 0, TAU); ctx.stroke();
+            ctx.restore();
+        }
+    };
+
+    const DRAW_OVER = {
+        fantasy() {
+            ctx.save(); if (!lite()) ctx.globalCompositeOperation = 'lighter';
+            for (const o of fx.orbs) {
+                if (o.dead || o.age < 0) continue;
+                for (let i = 1; i < o.tr.length; i++) { ctx.globalAlpha = i / o.tr.length * 0.55; ctx.strokeStyle = o.c; ctx.lineWidth = 3 + i * 0.9; ctx.beginPath(); ctx.moveTo(o.tr[i - 1].x, o.tr[i - 1].y); ctx.lineTo(o.tr[i].x, o.tr[i].y); ctx.stroke(); }
+                ctx.globalAlpha = 1; glowDot(o.x, o.y, 22, o.c);
+                ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.beginPath(); ctx.arc(o.x, o.y, 6, 0, TAU); ctx.fill();
+            }
+            ctx.restore();
+        },
+        seal() {
+            const R = fx.R; if (R < 4) return;
+            const N = 20; ctx.save(); ctx.translate(fx.x, fx.y);
+            for (let i = 0; i < N; i++) {                                    // talismanes (ofuda) girando en el borde
+                const a = fx.rot + i * TAU / N; ctx.save(); ctx.rotate(a); ctx.translate(R, 0); ctx.rotate(Math.PI / 2);
+                ctx.fillStyle = '#fff'; ctx.fillRect(-5, -9, 10, 18); ctx.fillStyle = '#e02020'; ctx.fillRect(-5, -9, 10, 3); ctx.fillRect(-5, 6, 10, 3); ctx.fillRect(-1, -6, 2, 12);
+                ctx.restore();
+            }
+            ctx.restore();
+        },
+        stardust() {
+            ctx.save(); if (!lite()) ctx.globalCompositeOperation = 'lighter';
+            for (const s of fx.stars) {
+                for (let i = 1; i < s.tr.length; i++) { ctx.globalAlpha = i / s.tr.length * 0.5; ctx.strokeStyle = s.c; ctx.lineWidth = s.r * 0.5 * i / s.tr.length + 1; ctx.beginPath(); ctx.moveTo(s.tr[i - 1].x, s.tr[i - 1].y); ctx.lineTo(s.tr[i].x, s.tr[i].y); ctx.stroke(); }
+                ctx.globalAlpha = Math.min(1, s.life / 14);
+                star5(s.x, s.y, s.r, s.rot, s.c, s.c);
+            }
+            ctx.restore();
+        },
+        tank() {
+            ctx.save(); if (!lite()) ctx.globalCompositeOperation = 'lighter';
+            for (const w of fx.waves) {
+                if (fx.t < w.s || w.r > 1000) continue;
+                const a = Math.max(0, 1 - w.r / 900), rot = w.r * 0.004;
+                ctx.globalAlpha = a;
+                for (const [lw, col] of [[16, 'rgba(90,220,255,0.55)'], [7, 'rgba(255,215,120,0.95)'], [2, '#fff']]) {
+                    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.beginPath();
+                    for (let i = 0; i <= 6; i++) { const ang = rot + i * TAU / 6; ctx.lineTo(fx.x + Math.cos(ang) * w.r, fx.y + Math.sin(ang) * w.r); }
+                    ctx.stroke();
+                }
+                for (let i = 0; i < 6; i++) { const ang = rot + i * TAU / 6; ctx.fillStyle = '#fff'; ctx.fillRect(fx.x + Math.cos(ang) * w.r - 6, fx.y + Math.sin(ang) * w.r - 6, 12, 12); }
+            }
+            ctx.restore();
+            // placas del escudo girando alrededor de la nave al comenzar
+            if (fx.t < 30) {
+                ctx.save(); ctx.translate(fx.x, fx.y);
+                for (let i = 0; i < 6; i++) { const a = fx.t * 0.2 + i * TAU / 6, rr = 26 + fx.t * 0.8; ctx.save(); ctx.rotate(a); ctx.translate(rr, 0); ctx.fillStyle = 'rgba(160,240,255,' + (1 - fx.t / 30) + ')'; ctx.fillRect(-4, -9, 8, 18); ctx.restore(); }
+                ctx.restore();
+            }
+        },
+        sniper() {
+            ctx.save(); if (!lite()) ctx.globalCompositeOperation = 'lighter';
+            for (const t of fx.tg) {
+                if (fx.t < t.lock) continue;
+                if (fx.t < t.hit) {                                         // mira que se cierra
+                    const k = (fx.t - t.lock) / (t.hit - t.lock), r = 38 - 22 * k, blink = Math.floor(fx.t / 3) % 2;
+                    ctx.strokeStyle = blink ? '#ff5a5a' : '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, TAU); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(t.x - r - 8, t.y); ctx.lineTo(t.x - r + 6, t.y); ctx.moveTo(t.x + r + 8, t.y); ctx.lineTo(t.x + r - 6, t.y);
+                    ctx.moveTo(t.x, t.y - r - 8); ctx.lineTo(t.x, t.y - r + 6); ctx.moveTo(t.x, t.y + r + 8); ctx.lineTo(t.x, t.y + r - 6); ctx.stroke();
+                    ctx.globalAlpha = 0.25 * k; ctx.strokeStyle = '#ff5a5a'; ctx.beginPath(); ctx.moveTo(t.x, 0); ctx.lineTo(t.x, t.y); ctx.stroke(); ctx.globalAlpha = 1;
+                } else if (fx.t < t.hit + 12) {                             // rayo orbital
+                    const k = 1 - (fx.t - t.hit) / 12, w = 34 * k + 4;
+                    const g = ctx.createLinearGradient(t.x - w, 0, t.x + w, 0);
+                    g.addColorStop(0, 'rgba(120,200,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,' + k + ')'); g.addColorStop(1, 'rgba(120,200,255,0)');
+                    ctx.fillStyle = g; ctx.fillRect(t.x - w, 0, w * 2, t.y);
+                    glowDot(t.x, t.y, 50 * k + 10, '#9cf');
+                }
+            }
+            ctx.restore();
+        },
+        light() {
+            ctx.save(); if (!lite()) ctx.globalCompositeOperation = 'lighter';
+            for (const s of fx.sl) {
+                const k = fx.t - s.s; if (k < 0 || k > 26) continue;
+                const L = PW() * 0.75, ca = Math.cos(s.a), sa = Math.sin(s.a), prog = Math.min(1, k / 9);
+                const hd = (-L + 2 * L * prog) * s.dir, tl = (-L + 2 * L * Math.max(0, (k - 8) / 14)) * s.dir;
+                const fade = k > 9 ? Math.max(0, 1 - (k - 9) / 17) : 1;
+                const x1 = PW() / 2 + ca * tl, y1 = s.y + sa * tl, x2 = PW() / 2 + ca * hd, y2 = s.y + sa * hd;
+                ctx.lineCap = 'round';
+                for (const [lw, col] of [[26, 'rgba(255,225,80,' + 0.35 * fade + ')'], [11, 'rgba(255,255,200,' + 0.85 * fade + ')'], [3, 'rgba(255,255,255,' + fade + ')']]) {
+                    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+                }
+                if (k <= 9) glowDot(x2, y2, 34, '#ffe14a');
+                if (k <= 9 && !lite()) for (let i = 0; i < 4; i++) { ctx.fillStyle = '#fff'; ctx.fillRect(x2 + rnd(-30, 30), y2 + rnd(-24, 24), 3, 3); }
+            }
+            ctx.restore();
+        },
+        omega() {
+            const hx = fx.hx, hy = fx.hy;
+            ctx.save();
+            if (!fx.collapsed) {
+                const r = fx.hr;
+                if (!lite()) ctx.globalCompositeOperation = 'lighter';
+                for (const p of fx.swirl) {                                 // partículas en espiral hacia el centro
+                    p.a += p.s * (1 + (70 - p.d) * 0.01); p.d = Math.max(r * 0.6, p.d - 0.9); if (p.d <= r * 0.65) p.d = rnd(110, 180);
+                    ctx.fillStyle = 'rgba(255,170,70,0.85)'; ctx.fillRect(hx + Math.cos(p.a) * p.d - 2, hy + Math.sin(p.a) * p.d * 0.7 - 2, 4, 4);
+                }
+                for (let i = 0; i < 3; i++) { ctx.strokeStyle = 'rgba(255,' + (140 + i * 40) + ',60,' + (0.8 - i * 0.2) + ')'; ctx.lineWidth = 3 - i * 0.6; ctx.beginPath(); ctx.ellipse(hx, hy, r * (1.5 + i * 0.45), r * (0.55 + i * 0.15), fx.t * 0.08 + i, 0, TAU); ctx.stroke(); }
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(hx, hy, r, 0, TAU); ctx.fill();
+                ctx.strokeStyle = '#ffb060'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hx, hy, r + 1, 0, TAU); ctx.stroke();
+            } else {
+                const k = Math.max(0, 1 - fx.sw / 950);
+                if (!lite()) ctx.globalCompositeOperation = 'lighter';
+                glowDot(hx, hy, Math.max(10, fx.sw * 0.55), 'rgba(255,170,70,1)');
+                ctx.globalAlpha = k * 0.5; ctx.fillStyle = '#ffb060'; ctx.beginPath(); ctx.arc(hx, hy, fx.sw, 0, TAU); ctx.fill();
+            }
+            ctx.restore();
+        },
+        nova() {
+            ctx.save(); if (!lite()) ctx.globalCompositeOperation = 'lighter';
+            const r = fx.t * 22, a = Math.max(0, 1 - r / 900);
+            ctx.translate(fx.x, fx.y); ctx.rotate(fx.rot); ctx.globalAlpha = a * 0.8;
+            for (let i = 0; i < 12; i++) {                                     // rayos giratorios
+                ctx.rotate(TAU / 12); const g = ctx.createLinearGradient(0, 0, r, 0);
+                g.addColorStop(0, 'rgba(255,255,255,0.9)'); g.addColorStop(1, 'rgba(120,255,255,0)');
+                ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0, -4); ctx.lineTo(r, 0); ctx.lineTo(0, 4); ctx.closePath(); ctx.fill();
+            }
+            ctx.restore();
+        }
+    };
+
+    // ------------------------------------------------------------------ interfaz hacia el juego
+    function update() {
+        if (!fx) return;
+        fx.t++;
+        invulnerableUntil = Math.max(invulnerableUntil, Date.now() + 250);
+        bombEffect.active = true; bombEffect.x = bx(); bombEffect.y = by();
+        const U = UPD[fx.kind]; if (U) U();
+        for (let i = fx.rings.length - 1; i >= 0; i--) { const r = fx.rings[i]; r.r += r.speed; r.a = Math.max(0, 1 - r.r / r.max); if (r.r >= r.max) fx.rings.splice(i, 1); }
+        if (fx.t >= fx.dur) finish();
+    }
+    function finish() {
+        fx = null; bombEffect = { active: false, radius: 0, maxRadius: 0, x: 0, y: 0 };
+        invulnerableUntil = Math.max(invulnerableUntil, Date.now() + 600);
+    }
+    function under() { if (fx) drawUnder(); }
+    function over() {
+        if (!fx) return;
+        ctx.save();
+        if (fx.t < 7) { ctx.fillStyle = 'rgba(255,255,255,' + (0.6 * (1 - fx.t / 7)).toFixed(3) + ')'; ctx.fillRect(0, 0, PW(), PH()); }
+        ctx.save(); if (!lite()) ctx.globalCompositeOperation = 'lighter'; drawRings(); ctx.restore();
+        const D = DRAW_OVER[fx.kind]; if (D) D();
+        banner();
+        ctx.restore();
+    }
+    function reset() { fx = null; }
+    return { start, update, under, over, reset, active: () => !!fx };
+})();
+window.BombFX = BombFX;
