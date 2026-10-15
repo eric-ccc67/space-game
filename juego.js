@@ -761,10 +761,19 @@ const POWERUP_DROP_MIN = 0.35;              // nunca baja de 35 % de la probabil
 function levelDefenseStep() { return Math.min(Math.max(currentWave, 1), 10) - 1; }
 // LUNÁTICO: los enemigos comunes tienen +30 % de defensa extra (1.3). Pon 1 para quitarlo.
 const LUNATIC_ENEMY_DEF_BONUS = 1.3;
+// LUNÁTICO (niveles 1-7): los enemigos comunes tienen +18 % de vida, +18 % de cadencia de disparo y +18 % de velocidad de descenso.
+// Cambia el 1.18 para ajustarlo (1 = sin bonus). No afecta a jefes ni mini jefes.
+const LUNATIC_ENEMY_BOOST = 1.18;
+// LUNÁTICO · jefes y mini jefes: +30 % de vida (LUNATIC_BOSS_HP_BOOST). Al quitarles la mitad de la vida entran en MODO DEFENSA:
+// reciben 35 % menos daño (LUNATIC_DEFENSE_MODE_MULT = 0.65), usan sus habilidades más poderosas y descansan menos entre ellas.
+const LUNATIC_BOSS_HP_BOOST = 1.30;
+const LUNATIC_DEFENSE_MODE_MULT = 0.65;
+function lunaticBossMode() { return currentDiff === 'lunatico' && currentMode !== 'clasico'; }
+function lunaticEnemyBoost() { return (currentDiff === 'lunatico' && currentMode !== 'clasico') ? LUNATIC_ENEMY_BOOST : 1; }
 function enemyDefenseFactor() {
     if (currentMode === 'clasico') return 1;
     const lunatic = difficultySettings[currentDiff].enemyDef || 1;   // v16: antes solo LUNÁTICO tenía bonus (LUNATIC_ENEMY_DEF_BONUS)
-    return (1 + levelDefenseStep() * DEF_PER_LEVEL_ENEMY) * (1 + (powerLevel - 1) * DEF_PER_ATTACK_ENEMY) * lunatic;
+    return (1 + levelDefenseStep() * DEF_PER_LEVEL_ENEMY) * (1 + (powerLevel - 1) * DEF_PER_ATTACK_ENEMY) * lunatic * lunaticEnemyBoost();   // +18 % de vida en Lunático
 }
 function bossDefenseFactor() {
     if (currentMode === 'clasico') return 1;
@@ -806,7 +815,7 @@ function waveDurFor() {
 // Descenso más pausado de los enemigos en Moderno (las oleadas son más largas).
 // Los enemigos bajan ~22 % más rápido que antes (ajusta ENEMY_DESCENT_BOOST: 1 = como antes).
 const ENEMY_DESCENT_BOOST = 1.22;
-function enemyDescentMult() { return (currentMode === 'moderno' ? 0.78 : 1) * ENEMY_DESCENT_BOOST; }
+function enemyDescentMult() { return (currentMode === 'moderno' ? 0.78 : 1) * ENEMY_DESCENT_BOOST * lunaticEnemyBoost(); }   // +18 % al bajar en Lunático
 let activeBoss = null;
 let isEndless = false;
 
@@ -1284,7 +1293,7 @@ function drawSpecialAttackTelegraph(entity, name, progress, isMini) {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffcf5c';
     ctx.font = (isMini ? '11px' : '13px') + ' "Press Start 2P"';
-    ctx.fillText(isMini ? '¡ATAQUE ESPECIAL DEL MINI JEFE!' : '¡ATAQUE ESPECIAL!', playAreaW / 2, boxY + (isMini ? 18 : 22));
+    ctx.fillText(lunaticBossMode() ? '¡MODO DEFENSA!' : (isMini ? '¡ATAQUE ESPECIAL DEL MINI JEFE!' : '¡ATAQUE ESPECIAL!'), playAreaW / 2, boxY + (isMini ? 18 : 22));
     ctx.fillStyle = '#fff';
     ctx.font = (isMini ? '10px' : '11px') + ' "Press Start 2P"';
     ctx.fillText(name, playAreaW / 2, boxY + (isMini ? 34 : 42));
@@ -2411,7 +2420,7 @@ class Enemy {
         let cy = this.y + this.height / 2;
         // Ataque PERIÓDICO: cada ~1.3-1.8 s (según dificultad y nivel). Las hadas menores del mini jefe
         // mantienen su cadencia fija de 0.8 s.
-        let cadence = this.cadenceFrames || Math.round((60 + (this.levelIdx % 3) * 8) * (0.7 + dset.bulletIntervalMult * 0.5));
+        let cadence = this.cadenceFrames || Math.max(8, Math.round((60 + (this.levelIdx % 3) * 8) * (0.7 + dset.bulletIntervalMult * 0.5) / lunaticEnemyBoost()));
         const TELEGRAPH_FRAMES = this.cadenceFrames ? 12 : 18; // ~0.2s de aviso para las menores, ~0.3s para el resto
 
         if (this.t > 25) {
@@ -2908,7 +2917,7 @@ class Boss {
         let hpMultiplier = currentMode === 'infinito' ? 100 : 150; 
         let baseHp = 300 + (waveNum * hpMultiplier); 
         let earlyWaveFactor = waveNum <= 2 ? 0.5 : (waveNum <= 4 ? 0.75 : 1);
-        this.maxHp = Math.round(baseHp * earlyWaveFactor);
+        this.maxHp = Math.round(baseHp * earlyWaveFactor * (lunaticBossMode() ? LUNATIC_BOSS_HP_BOOST : 1));
         this.hp = this.maxHp;
         
         this.state = 'intro'; 
@@ -3015,7 +3024,8 @@ class Boss {
                 // este jefe, y de paso le sube algo la defensa (recibe menos daño).
                 this.specialActive = true;
                 this.specialTimer = 0;
-                this.defenseMult = 0.7; // ~30% menos daño recibido, de forma permanente
+                this.defenseMult = lunaticBossMode() ? LUNATIC_DEFENSE_MODE_MULT : 0.7; // ~30% menos daño (35 % en Lunático: MODO DEFENSA), permanente
+                this.defenseMode = lunaticBossMode();
                 screenShake = 22;
                 playExplosionSound();
             }
@@ -3055,7 +3065,7 @@ class Boss {
                 this.specialTimer++;
                 // (Corregido) La fase 3 de cada spell card nunca se usaba: el especial entra al 50% y reemplazaba todo.
                 // Ahora, por debajo del 25% de vida, el jefe alterna cada 4 s entre su ataque especial y su fase 3 (furia).
-                let enrage = hpPercent <= 0.25;
+                let enrage = hpPercent <= 0.25 || !!this.defenseMode;   // Lunático: en MODO DEFENSA alterna con la furia desde el 50 %
                 if (enrage && Math.floor(this.specialTimer / 240) % 2 === 1) this.runSpellCard(3, speed, cx, cy, angleToPlayer);
                 else this.runSpecialAttack(speed, cx, cy, angleToPlayer);
                 bossExtraAttacks(this, speed, cx, cy, angleToPlayer, 3);
@@ -3258,7 +3268,7 @@ class MiniBoss {
         this.restY = 85;
 
         let hpBase = 90 + waveNum * 55;
-        this.maxHp = Math.round(hpBase * (currentMode === 'infinito' ? 0.75 : 1));
+        this.maxHp = Math.round(hpBase * (currentMode === 'infinito' ? 0.75 : 1) * (lunaticBossMode() ? LUNATIC_BOSS_HP_BOOST : 1));
         this.hp = this.maxHp;
 
         this.state = 'intro';
@@ -3415,7 +3425,8 @@ class MiniBoss {
                 // este mini jefe, y de paso le sube algo la defensa (recibe menos daño).
                 this.specialActive = true;
                 this.specialTimer = 0;
-                this.defenseMult = 0.7; // ~30% menos daño recibido, de forma permanente
+                this.defenseMult = lunaticBossMode() ? LUNATIC_DEFENSE_MODE_MULT : 0.7; // ~30% menos daño (35 % en Lunático: MODO DEFENSA), permanente
+                this.defenseMode = lunaticBossMode();
                 screenShake = 14;
                 playExplosionSound();
             }
@@ -11284,7 +11295,7 @@ Enemy.prototype.maybeShoot = function () {
     if (this.y < 0) return;
     if (this.y + this.height > playAreaH - 70) return;
     const dset = difficultySettings[currentDiff], L = this.levelIdx;
-    const cadence = this.cadenceFrames || Math.round((100 + (L % 3) * 14) * (CAD[L][this.type - 1]) * dset.bulletIntervalMult * ENEMY_FIRE_SLOW);
+    const cadence = this.cadenceFrames || Math.round((100 + (L % 3) * 14) * (CAD[L][this.type - 1]) * dset.bulletIntervalMult * ENEMY_FIRE_SLOW / lunaticEnemyBoost());
     const TELE = this.cadenceFrames ? 12 : 18;
     if (this.t > 25) {
         const ph = this.t % cadence;
@@ -11468,7 +11479,7 @@ MINI_AB[6] = [  // Ángel caído
 // ----------------------------------------------------------- cerebro: alterna ataque base y habilidades
 function restFrames(b, phase, special, isMini) {
     const m = difficultySettings[currentDiff].bulletIntervalMult || 1;
-    return Math.round((isMini ? 115 : (special ? 65 : [145, 115, 90][phase - 1])) * m);   // menos espera: el jefe usa sus habilidades más seguido
+    return Math.round((isMini ? 115 : (special ? 65 : [145, 115, 90][phase - 1])) * m * (b.defenseMode ? 0.7 : 1));   // menos espera: el jefe usa sus habilidades más seguido
 }
 function runBrain(b, pool, phase, special, base, speed) {
     const isMini = b instanceof MiniBoss;
@@ -11482,7 +11493,9 @@ function runBrain(b, pool, phase, special, base, speed) {
     if (b._cd === undefined) b._cd = special ? 40 : 120;
     if (--b._cd <= 0) {
         const cand = pool.filter(d => d.minPhase <= phase && (!d.sp || special) && d !== b._last);
-        const d = cand.length ? cand[Math.floor(rnd() * cand.length)] : null;
+        let pick = cand;
+        if (b.defenseMode && rnd() < 0.7) { const strong = cand.filter(x => x.sp || x.minPhase >= phase); if (strong.length) pick = strong; }   // MODO DEFENSA: prefiere las habilidades más poderosas
+        const d = pick.length ? pick[Math.floor(rnd() * pick.length)] : null;
         if (d) { b._last = d; b._ab = { d, t: 0 }; b._abName = d.name; b._abShow = true; blip(d.sp ? 380 : 560); } else b._cd = 60;
     }
     base();
@@ -11543,6 +11556,11 @@ Boss.prototype.draw = function (frame) {
         ctx.save(); ctx.globalAlpha = 0.25 + pulse * 0.2; ctx.strokeStyle = '#fff200'; ctx.lineWidth = 4;
         ctx.strokeRect(this.x - 6, this.y - 6, this.width + 12, this.height + 12); ctx.restore();
     }
+    if (this.defenseMode && this.specialActive) {   // MODO DEFENSA (Lunático): aura azul
+        const pu = (S(this.timer * 0.15) + 1) / 2;
+        ctx.save(); ctx.globalAlpha = 0.3 + pu * 0.25; ctx.strokeStyle = '#6cc4ff'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(this.x + this.width / 2, this.y + this.height / 2, Math.max(this.width, this.height) * 0.62, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+    }
     drawBossHealthBar(this, false, BOSS_BAR_NAMES[this.levelIdx]);
 };
 Boss.prototype.update = function () {
@@ -11601,6 +11619,11 @@ MiniBoss.prototype.draw = function (frame) {
         const pulse = (S(this.timer * 0.25) + 1) / 2;
         ctx.save(); ctx.globalAlpha = 0.25 + pulse * 0.2; ctx.strokeStyle = '#fff200'; ctx.lineWidth = 3;
         ctx.strokeRect(this.x - 5, this.y - 5, this.width + 10, this.height + 10); ctx.restore();
+    }
+    if (this.defenseMode && this.specialActive) {   // MODO DEFENSA (Lunático): aura azul
+        const pu = (S(this.timer * 0.15) + 1) / 2;
+        ctx.save(); ctx.globalAlpha = 0.3 + pu * 0.25; ctx.strokeStyle = '#6cc4ff'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(this.x + this.width / 2, this.y + this.height / 2, Math.max(this.width, this.height) * 0.62, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
     }
     drawBossHealthBar(this, true, MINIBOSS_NAMES[this.levelIdx] || 'MINI JEFE');
 };
@@ -11668,7 +11691,21 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
     const EVENTS = [
         { id: 'row',   name: 'LÍNEA DE BLASTERS',   hint: '¡CUIDADO CON LAS COLUMNAS!' },
         { id: 'lock',  name: 'BLASTERS DE PUNTERÍA', hint: '¡LA COLUMNA TE SIGUE!' },
-        { id: 'waves', name: 'LLUVIA DE ONDAS',     hint: '¡BUSCA LA ABERTURA!' }
+        { id: 'waves', name: 'LLUVIA DE ONDAS',     hint: '¡BUSCA LA ABERTURA!' },
+        // v27: mini secciones nuevas (cada oleada sortea 3 de las 15)
+        { id: 'drop',  name: 'CAÍDA DE BLASTERS',   hint: '¡BLASTERS DESDE EL CIELO!' },
+        { id: 'wind',  name: 'VIENTO DE HOJAS',     hint: '¡BUSCA LA FRANJA CALMA!' },
+        { id: 'stars', name: 'LLUVIA DE ESTRELLAS', hint: '¡MIRA LAS SEÑALES ARRIBA!' },
+        { id: 'wall',  name: 'MURO DE LUZ',         hint: '¡PASA POR EL HUECO!' },
+        { id: 'storm', name: 'TORMENTA ELÉCTRICA',  hint: '¡LOS RAYOS CAEN CERCA!' },
+        { id: 'mines', name: 'CAMPO DE MINAS',      hint: '¡ESTALLAN EN ANILLO!' },
+        // v28: 6 mini secciones nuevas
+        { id: 'laser',  name: 'LÁSERES LATERALES',    hint: '¡CAMBIA DE FILA A TIEMPO!' },
+        { id: 'meteor', name: 'LLUVIA DE METEORITOS', hint: '¡HUYE DE LOS CÍRCULOS ROJOS!' },
+        { id: 'moth',   name: 'ENJAMBRE DE POLILLAS', hint: '¡TE PERSIGUEN, DA VUELTAS!' },
+        { id: 'spiral', name: 'ESPIRAL ESTELAR',      hint: '¡SIGUE EL GIRO DE LAS BALAS!' },
+        { id: 'ball',   name: 'BOLAS REBOTADORAS',    hint: '¡CUENTA LOS REBOTES!' },
+        { id: 'press',  name: 'PRENSA DE LUZ',        hint: '¡QUÉDATE EN LA FRANJA VERDE!' }
     ];
 
     // ----------------------------------------------------------- dificultad
@@ -11780,12 +11817,13 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
             this.pulses = opts.pulses || 1;
             this.swayAmp = opts.sway || 0;
             this.fromEvent = !!opts.fromEvent;
+            this.fall = !!opts.fall;   // CAÍDA DE BLASTERS: entra cayendo rápido
             this.beamW = opts.beamW || D().beamW;
             const mult = difficultySettings[currentDiff].enemySpeedMult || 1;
             if (role === 'blaster') this.hp = opts.hp || 7;
             else if (role === 'pulser') this.hp = opts.hp || 7;
-            else if (role === 'sniper') { this.hp = 4; this.vy = 0.55 * mult; this.shotsLeft = opts.shots || 2; this.aimT = 0; this.coolT = 0; this.lockA = Math.PI / 2; this.locked = false; }
-            else if (role === 'bomber') { this.hp = 4; this.vy = 0.62 * mult; this.sway = 26; this.swayFreq = 0.02; }
+            else if (role === 'sniper') { this.hp = 4; this.vy = 0.55 * mult * lunaticEnemyBoost(); this.shotsLeft = opts.shots || 2; this.aimT = 0; this.coolT = 0; this.lockA = Math.PI / 2; this.locked = false; }
+            else if (role === 'bomber') { this.hp = 4; this.vy = 0.62 * mult * lunaticEnemyBoost(); this.sway = 26; this.swayFreq = 0.02; }
             this.isMinion = false; this.cadenceFrames = null;
             this.formation = null;
         }
@@ -11804,8 +11842,8 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
         // --- BLASTER / PULSER: se plantan arriba, cargan (aviso) y atacan -----------
         casterStep() {
             if (this.state === 'enter') {
-                this.y += 2.4;
-                if (this.y >= this.holdY) { this.y = this.holdY; this.state = 'hold'; this.stT = 0; }
+                this.y += this.fall ? 6.5 : 2.4;
+                if (this.y >= this.holdY) { this.y = this.holdY; this.state = 'hold'; this.stT = 0; if (this.fall) screenShake = Math.max(screenShake, 5); }
             } else if (this.state === 'hold') {
                 this.stT++;
                 if (!this.charging && this.planIdx < this.plan.length && this.stT >= this.plan[this.planIdx]) this.beginCharge();
@@ -12205,6 +12243,536 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
     }
 
     // ====================================================================
+    //  NUEVAS MINI SECCIONES (v27): CAÍDA DE BLASTERS · VIENTO DE HOJAS · LLUVIA DE ESTRELLAS ·
+    //  MURO DE LUZ · TORMENTA ELÉCTRICA · CAMPO DE MINAS.
+    //  Todas avisan antes de atacar y siempre dejan una salida. Cada oleada sortea 3 de las 9 mini secciones.
+    //  La cantidad de peligros sube con la dificultad (evF) y en los niveles 5-7 de Lunático.
+    // ====================================================================
+    const evF = () => ({ facil: 0.6, medio: 1, dificil: 1.2, lunatico: 1.5 }[currentDiff] || 1) + lunaticLate() * 0.12;
+    const sfxWind = () => tone('sawtooth', 160, 380, 0.55, 0.03);
+    const sfxZap  = () => { tone('square', 1400, 90, 0.18, 0.06); tone('sawtooth', 300, 60, 0.25, 0.05); };
+    const rnd = () => Math.random();
+
+    // ---- Hoja que vuela con el viento (se mece arriba y abajo) -------------------
+    class Leaf {
+        constructor(x, y, vx) {
+            this.kind = 'leaf'; this.evLong = true; this.bombable = true; this.dead = false; this.grazed = false;
+            this.x = x; this.baseY = y; this.y = y; this.vx = vx; this.t = 0; this.r = 9;
+            this.ph = rnd() * TAU; this.amp = 6 + rnd() * 5; this.hue = 20 + Math.floor(rnd() * 110);   // del naranja al verde
+        }
+        update() {
+            this.t++; this.x += this.vx; this.y = this.baseY + Math.sin(this.t * 0.07 + this.ph) * this.amp;
+            if ((this.vx > 0 && this.x > playAreaW + 50) || (this.vx < 0 && this.x < -50)) { this.dead = true; return; }
+            const d = Math.hypot(pcx() - this.x, pcy() - this.y);
+            if (d < this.r * 0.8 + 2) hurtPlayer(); else if (d < this.r + 22) grazeOnce(this);
+        }
+        draw() {
+            ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.t * 0.11 * Math.sign(this.vx) + this.ph);
+            ctx.fillStyle = `hsl(${this.hue},70%,48%)`; ctx.strokeStyle = '#102010'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(-this.r * 1.3, 0); ctx.quadraticCurveTo(0, -this.r, this.r * 1.3, 0); ctx.quadraticCurveTo(0, this.r, -this.r * 1.3, 0); ctx.fill(); ctx.stroke();
+            ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.moveTo(-this.r, 0); ctx.lineTo(this.r * 1.1, 0); ctx.stroke();
+            ctx.restore();
+        }
+    }
+    // ---- Ráfaga: aviso (franja segura marcada) y luego suelta las hojas -------------
+    const LANE_H = 54;
+    class Gust {
+        constructor(dir) {
+            this.kind = 'gust'; this.evLong = true; this.bombable = true; this.dead = false; this.dir = dir; this.t = 0; this.dur = 72;
+            this.top = playAreaH * 0.34; this.lanes = Math.floor((playAreaH - 50 - this.top) / LANE_H) + 1;
+            this.gap = clamp(Math.round((pcy() + (rnd() - 0.5) * 150 - this.top) / LANE_H), 1, Math.max(1, this.lanes - 3));   // franja calma cerca de ti
+        }
+        update() {
+            if (++this.t < this.dur) return;
+            const sp = 2.4 + difficultySettings[currentDiff].bulletSpeed * 0.26, W = playAreaW;
+            for (let i = 0; i < this.lanes; i++) {
+                if (i === this.gap || i === this.gap + 1) continue;
+                const n = 3, y = this.top + i * LANE_H;
+                for (let j = 0; j < n; j++) hazards.push(new Leaf(this.dir > 0 ? -30 - j * 150 - rnd() * 50 : W + 30 + j * 150 + rnd() * 50, y, this.dir * sp * (0.9 + rnd() * 0.2)));
+            }
+            this.dead = true;
+        }
+        draw() {
+            const W = playAreaW, p = this.t / this.dur, yA = this.top + (this.gap - 0.5) * LANE_H, hB = LANE_H * 2;
+            ctx.save();
+            ctx.globalAlpha = 0.12 + 0.1 * p; ctx.fillStyle = '#bfe8ff';       // estelas de viento
+            for (let k = 0; k < 9; k++) { const yy = this.top + ((k * 83 + this.t * 3) % (playAreaH - this.top)); const xx = ((this.t * 14 * this.dir + k * 97) % W + W) % W; ctx.fillRect(xx, yy, 70, 2); }
+            ctx.globalAlpha = 0.18 + 0.12 * Math.sin(this.t * 0.3); ctx.fillStyle = '#5fe08a'; ctx.fillRect(0, yA, W, hB);   // franja segura
+            ctx.globalAlpha = 0.85; ctx.strokeStyle = '#7dffa8'; ctx.lineWidth = 2; ctx.setLineDash([12, 8]);
+            ctx.beginPath(); ctx.moveTo(0, yA); ctx.lineTo(W, yA); ctx.moveTo(0, yA + hB); ctx.lineTo(W, yA + hB); ctx.stroke(); ctx.setLineDash([]);
+            ctx.fillStyle = '#fff'; ctx.font = '16px "Press Start 2P"'; ctx.textAlign = 'center';
+            ctx.fillText(this.dir > 0 ? '>>>' : '<<<', this.dir > 0 ? 40 + (this.t * 4) % 60 : W - 40 - (this.t * 4) % 60, this.top - 8);
+            ctx.restore();
+        }
+    }
+
+    // ---- Estrella fugaz: marcador arriba y caída rápida -------------------------
+    class Star {
+        constructor(x) {
+            this.kind = 'star'; this.evLong = true; this.bombable = true; this.dead = false; this.grazed = false;
+            this.x = x; this.y = -24; this.t = 0; this.warn = 40; this.r = 11;
+            this.vy = 5.5 + difficultySettings[currentDiff].bulletSpeed * 0.28; this.vx = (rnd() - 0.5) * 2.2;
+        }
+        update() {
+            this.t++; if (this.t < this.warn) return;
+            this.x += this.vx; this.y += this.vy; if (this.y > playAreaH + 40) { this.dead = true; return; }
+            const d = Math.hypot(pcx() - this.x, pcy() - this.y);
+            if (d < this.r * 0.8 + 2) hurtPlayer(); else if (d < this.r + 20) grazeOnce(this);
+        }
+        draw() {
+            ctx.save();
+            if (this.t < this.warn) {
+                const p = this.t / this.warn, on = Math.floor(this.t / 4) % 2 === 0;
+                ctx.globalAlpha = 0.35 + 0.5 * p; ctx.strokeStyle = on ? '#ffe14a' : '#fff'; ctx.lineWidth = 2; ctx.setLineDash([6, 8]);
+                ctx.beginPath(); ctx.moveTo(this.x, 30); ctx.lineTo(this.x + this.vx * 60, playAreaH); ctx.stroke(); ctx.setLineDash([]);
+                ctx.fillStyle = on ? '#ffe14a' : '#ff8a3a'; ctx.beginPath(); ctx.moveTo(this.x, 34); ctx.lineTo(this.x - 9, 14); ctx.lineTo(this.x + 9, 14); ctx.closePath(); ctx.fill();
+            } else {
+                ctx.globalAlpha = 0.35; ctx.strokeStyle = '#ffd35a'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(this.x - this.vx * 7, this.y - this.vy * 7); ctx.stroke();
+                ctx.globalAlpha = 1; ctx.translate(this.x, this.y); ctx.rotate(this.t * 0.15); ctx.fillStyle = '#fff3a0'; ctx.strokeStyle = '#ff9a2a'; ctx.lineWidth = 2;
+                ctx.beginPath(); for (let i = 0; i < 10; i++) { const a = (i / 10) * TAU - PI / 2, rr = i % 2 ? this.r * 0.5 : this.r * 1.25; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); ctx.stroke();
+            }
+            ctx.restore();
+        }
+    }
+
+    // ---- Muro de luz: baja por la pantalla con un hueco marcado --------------------
+    class Wall {
+        constructor() {
+            const W = playAreaW, d = { facil: 250, medio: 210, dificil: 185, lunatico: 165 }[currentDiff] || 210;
+            this.kind = 'wall'; this.evLong = true; this.bombable = true; this.dead = false; this.grazed = false;
+            this.gapW = d; this.gapX = clamp(pcx() + (rnd() - 0.5) * 240, d / 2 + 12, W - d / 2 - 12);
+            this.t = 0; this.warn = { facil: 95, medio: 80, dificil: 70, lunatico: 62 }[currentDiff] || 80; this.y = -16; this.th = 16;
+            this.vy = 3.4 + difficultySettings[currentDiff].bulletSpeed * 0.2;
+        }
+        update() {
+            this.t++; if (this.t < this.warn) return;
+            if (this.t === this.warn) sfxWave();
+            this.y += this.vy; if (this.y > playAreaH + 30) { this.dead = true; return; }
+            if (Math.abs(pcy() - (this.y + this.th / 2)) < this.th / 2 + 2) {
+                const dx = Math.abs(pcx() - this.gapX);
+                if (dx > this.gapW / 2) hurtPlayer(); else if (dx > this.gapW / 2 - 18) grazeOnce(this);
+            }
+        }
+        draw() {
+            const W = playAreaW, gx0 = this.gapX - this.gapW / 2, gx1 = this.gapX + this.gapW / 2;
+            ctx.save();
+            if (this.t < this.warn) {
+                const p = this.t / this.warn, on = Math.floor(this.t / 4) % 2 === 0;
+                ctx.globalAlpha = 0.14 + 0.1 * p; ctx.fillStyle = '#5fe08a'; ctx.fillRect(gx0, 0, this.gapW, playAreaH);   // hueco seguro
+                ctx.globalAlpha = on ? 0.95 : 0.5; ctx.strokeStyle = '#7dffa8'; ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+                ctx.beginPath(); ctx.moveTo(gx0, 0); ctx.lineTo(gx0, playAreaH); ctx.moveTo(gx1, 0); ctx.lineTo(gx1, playAreaH); ctx.stroke(); ctx.setLineDash([]);
+                ctx.globalAlpha = 0.25 + 0.5 * p; ctx.fillStyle = '#ff5a6a';
+                ctx.fillRect(0, 0, gx0, 6); ctx.fillRect(gx1, 0, W - gx1, 6);
+            } else {
+                for (const [a, b] of [[0, gx0], [gx1, W]]) {
+                    ctx.globalAlpha = 0.9; ctx.fillStyle = '#ff7aa0'; ctx.fillRect(a, this.y, b - a, this.th);
+                    ctx.fillStyle = '#fff'; ctx.fillRect(a, this.y + this.th * 0.3, b - a, this.th * 0.4);
+                    ctx.globalAlpha = 0.22; ctx.fillStyle = '#ff7aa0'; ctx.fillRect(a, this.y - 34, b - a, 34);   // estela
+                }
+            }
+            ctx.restore();
+        }
+    }
+
+    // ---- Rayo de tormenta: sombra en el suelo, aviso y caída ---------------------------
+    class Bolt {
+        constructor(x) {
+            this.kind = 'bolt'; this.evLong = true; this.bombable = true; this.dead = false; this.grazed = false;
+            this.x = x; this.t = 0; this.warn = { facil: 76, medio: 62, dificil: 54, lunatico: 48 }[currentDiff] || 62; this.dur = 16; this.phase = 'warn'; this.w = 38;
+            this.zig = []; for (let y = 0; y <= 1.001; y += 0.1) this.zig.push((rnd() - 0.5) * 26);
+        }
+        update() {
+            this.t++;
+            if (this.phase === 'warn') { if (this.t >= this.warn) { this.phase = 'strike'; this.t = 0; sfxZap(); screenShake = Math.max(screenShake, 8); } return; }
+            if (this.t >= this.dur) { this.dead = true; return; }
+            const f = this.t < 4 ? this.t / 4 : (this.t > this.dur - 5 ? (this.dur - this.t) / 5 : 1), dx = Math.abs(pcx() - this.x);
+            if (f > 0.55 && dx < this.w / 2 * f) hurtPlayer(); else if (f > 0.55 && dx < this.w / 2 + 22) grazeOnce(this);
+        }
+        draw() {
+            const H = playAreaH;
+            ctx.save();
+            if (this.phase === 'warn') {
+                const p = this.t / this.warn, on = Math.floor(this.t / 3) % 2 === 0;
+                ctx.globalAlpha = 0.12 + 0.18 * p; ctx.fillStyle = '#ffe14a'; ctx.fillRect(this.x - this.w / 2, 0, this.w, H);
+                ctx.globalAlpha = on ? 0.95 : 0.45; ctx.strokeStyle = '#fff2a0'; ctx.lineWidth = 2; ctx.setLineDash([8, 8]);
+                ctx.beginPath(); ctx.moveTo(this.x - this.w / 2, 0); ctx.lineTo(this.x - this.w / 2, H); ctx.moveTo(this.x + this.w / 2, 0); ctx.lineTo(this.x + this.w / 2, H); ctx.stroke(); ctx.setLineDash([]);
+                ctx.globalAlpha = 0.8; ctx.fillStyle = '#2a2a44'; ctx.beginPath(); ctx.ellipse(this.x, 16, 30 + p * 12, 14, 0, 0, TAU); ctx.fill();   // nube
+                ctx.fillStyle = '#ffe14a'; ctx.beginPath(); ctx.arc(this.x, H - 16, 4 + p * 10, 0, TAU); ctx.fill();
+            } else {
+                const f = this.t < 4 ? this.t / 4 : (this.t > this.dur - 5 ? (this.dur - this.t) / 5 : 1);
+                ctx.globalAlpha = 0.9 * f; ctx.fillStyle = '#ffe9a0'; ctx.fillRect(this.x - this.w * f / 2, 0, this.w * f, H);
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 5 * f; ctx.beginPath();
+                this.zig.forEach((o, i) => { const y = (i / (this.zig.length - 1)) * H; i ? ctx.lineTo(this.x + o, y) : ctx.moveTo(this.x + o, y); }); ctx.stroke();
+            }
+            ctx.restore();
+        }
+    }
+
+    // ---- Mina: aviso con anillo y estalla en un solo anillo de orbes ---------------------
+    class Mine {
+        constructor(x, y) { this.kind = 'mine'; this.evLong = true; this.dead = false; this.x = x; this.y = y; this.t = 0; this.warn = 56; }
+        update() {
+            if (++this.t < this.warn) return;
+            const n = Math.max(8, Math.round((D().burstN || 8) * 0.9)), sp = difficultySettings[currentDiff].bulletSpeed * 0.5, a0 = rnd() * TAU;
+            for (let i = 0; i < n; i++) {
+                const a = a0 + (TAU / n) * i, b = new Bullet(this.x, this.y, true, false, Math.cos(a) * sp, Math.sin(a) * sp, 'player', 'orb');
+                b.color = '#c9a6ff'; pushEnemyBullet(b);
+            }
+            tone('triangle', 260, 70, 0.25, 0.08); createExplosion(this.x, this.y, '#c9a6ff', 40); this.dead = true;
+        }
+        draw() {
+            const p = this.t / this.warn, on = Math.floor(this.t / 4) % 2 === 0;
+            ctx.save();
+            ctx.strokeStyle = on ? '#c9a6ff' : '#fff'; ctx.lineWidth = 3; ctx.globalAlpha = 0.45 + 0.5 * p;
+            ctx.beginPath(); ctx.arc(this.x, this.y, 80 * (1 - p) + 10, 0, TAU); ctx.stroke();
+            ctx.fillStyle = '#2b1a44'; ctx.beginPath(); ctx.arc(this.x, this.y, 10, 0, TAU); ctx.fill();
+            ctx.fillStyle = on ? '#ff3b3b' : '#c9a6ff'; ctx.beginPath(); ctx.arc(this.x, this.y, 4 + p * 4, 0, TAU); ctx.fill();
+            ctx.restore();
+        }
+    }
+
+
+    // ====================================================================
+    //  v28: 6 MINI SECCIONES NUEVAS — LÁSERES LATERALES · LLUVIA DE METEORITOS · ENJAMBRE DE POLILLAS ·
+    //  ESPIRAL ESTELAR · BOLAS REBOTADORAS · PRENSA DE LUZ.
+    //  Igual que las anteriores: banner + sonido de aviso al empezar y cada peligro se marca antes de dañar.
+    // ====================================================================
+    const envF = (t, dur) => t < 4 ? t / 4 : (t > dur - 5 ? (dur - t) / 5 : 1);
+    const wrapA = (a) => { while (a > PI) a -= TAU; while (a < -PI) a += TAU; return a; };
+
+    // ---- Láser lateral: fila marcada con cañón en un borde, luego rayo horizontal ----------
+    class SideLaser {
+        constructor(y, dir) {
+            this.kind = 'sidelaser'; this.evLong = true; this.bombable = true; this.dead = false; this.grazed = false;
+            this.y = y; this.dir = dir; this.t = 0; this.phase = 'warn'; this.h = 30; this.dur = 18;
+            this.warn = { facil: 84, medio: 68, dificil: 58, lunatico: 50 }[currentDiff] || 68;
+        }
+        update() {
+            this.t++;
+            if (this.phase === 'warn') { if (this.t >= this.warn) { this.phase = 'strike'; this.t = 0; sfxZap(); screenShake = Math.max(screenShake, 6); } return; }
+            if (this.t >= this.dur) { this.dead = true; return; }
+            const f = envF(this.t, this.dur), dy = Math.abs(pcy() - this.y);
+            if (f > 0.55 && dy < this.h / 2 * f) hurtPlayer(); else if (f > 0.55 && dy < this.h / 2 + 22) grazeOnce(this);
+        }
+        draw() {
+            const W = playAreaW, ex = this.dir > 0 ? 0 : W;
+            ctx.save();
+            if (this.phase === 'warn') {
+                const p = this.t / this.warn, on = Math.floor(this.t / 3) % 2 === 0;
+                ctx.globalAlpha = 0.10 + 0.16 * p; ctx.fillStyle = '#7ff'; ctx.fillRect(0, this.y - this.h / 2, W, this.h);
+                ctx.globalAlpha = on ? 0.95 : 0.45; ctx.strokeStyle = '#bff'; ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+                ctx.beginPath(); ctx.moveTo(0, this.y - this.h / 2); ctx.lineTo(W, this.y - this.h / 2); ctx.moveTo(0, this.y + this.h / 2); ctx.lineTo(W, this.y + this.h / 2); ctx.stroke(); ctx.setLineDash([]);
+                ctx.globalAlpha = 0.9; ctx.fillStyle = '#233'; ctx.fillRect(ex - (this.dir > 0 ? 0 : 22), this.y - 20, 22, 40);   // cañón
+                ctx.fillStyle = on ? '#fff' : '#7ff'; ctx.beginPath(); ctx.arc(ex + this.dir * 16, this.y, 4 + p * 9, 0, TAU); ctx.fill();
+                ctx.fillStyle = '#ffe14a'; const ax = ex + this.dir * (40 + (this.t * 3) % 40);   // flechas de dirección
+                ctx.beginPath(); ctx.moveTo(ax + this.dir * 10, this.y); ctx.lineTo(ax - this.dir * 6, this.y - 8); ctx.lineTo(ax - this.dir * 6, this.y + 8); ctx.closePath(); ctx.fill();
+            } else {
+                const f = envF(this.t, this.dur);
+                ctx.globalAlpha = 0.9 * f; ctx.fillStyle = '#aef'; ctx.fillRect(0, this.y - this.h * f / 2, W, this.h * f);
+                ctx.fillStyle = '#fff'; ctx.fillRect(0, this.y - this.h * f * 0.2, W, this.h * f * 0.4);
+            }
+            ctx.restore();
+        }
+    }
+
+    // ---- Meteorito: círculo rojo en el suelo, caída diagonal e impacto con onda circular -------------
+    class Meteor {
+        constructor(x, y) {
+            this.kind = 'meteor'; this.evLong = true; this.bombable = true; this.dead = false; this.grazed = false;
+            this.x = x; this.y = y; this.t = 0; this.phase = 'warn'; this.R = 50; this.fall = 20; this.boom = 16; this.mx = x; this.my = y;
+            this.warn = { facil: 84, medio: 68, dificil: 58, lunatico: 50 }[currentDiff] || 68;
+        }
+        update() {
+            this.t++;
+            if (this.phase === 'warn') { if (this.t >= this.warn) { this.phase = 'fall'; this.t = 0; tone('sawtooth', 700, 160, 0.3, 0.04); } return; }
+            if (this.phase === 'fall') {
+                const p = this.t / this.fall; this.mx = this.x - 190 * (1 - p * p); this.my = this.y - 540 * (1 - p * p);
+                if (Math.hypot(pcx() - this.mx, pcy() - this.my) < 13) hurtPlayer();
+                if (this.t >= this.fall) {
+                    this.phase = 'boom'; this.t = 0; sfxZap(); screenShake = Math.max(screenShake, 8); createExplosion(this.x, this.y, '#ff9a3a', 36);
+                    if (evF() >= 1.2) {   // en dificultades altas el impacto suelta esquirlas
+                        const n = 6, a0 = rnd() * TAU, sp = difficultySettings[currentDiff].bulletSpeed * 0.45;
+                        for (let i = 0; i < n; i++) { const a = a0 + TAU / n * i, b = new Bullet(this.x, this.y, true, false, Math.cos(a) * sp, Math.sin(a) * sp, 'player', 'orb'); b.color = '#ffb347'; pushEnemyBullet(b); }
+                    }
+                }
+                return;
+            }
+            if (this.t >= this.boom) { this.dead = true; return; }
+            const rr = this.R * Math.min(1, this.t / 5), d = Math.hypot(pcx() - this.x, pcy() - this.y);
+            if (this.t < this.boom - 3 && d < rr * 0.85) hurtPlayer(); else if (this.t < this.boom - 3 && d < rr + 18) grazeOnce(this);
+        }
+        draw() {
+            ctx.save();
+            if (this.phase === 'warn') {
+                const p = this.t / this.warn, on = Math.floor(this.t / 4) % 2 === 0;
+                ctx.globalAlpha = 0.18 + 0.2 * p; ctx.fillStyle = '#ff3b3b'; ctx.beginPath(); ctx.arc(this.x, this.y, this.R, 0, TAU); ctx.fill();
+                ctx.globalAlpha = on ? 0.95 : 0.5; ctx.strokeStyle = on ? '#ff5a3a' : '#fff'; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.R, 0, TAU); ctx.stroke();
+                ctx.beginPath(); ctx.arc(this.x, this.y, (this.R - 8) * (1 - p) + 6, 0, TAU); ctx.stroke();
+                ctx.globalAlpha = 0.35; ctx.setLineDash([6, 10]); ctx.beginPath(); ctx.moveTo(this.x - 190, this.y - 540); ctx.lineTo(this.x, this.y); ctx.stroke(); ctx.setLineDash([]);
+            } else if (this.phase === 'fall') {
+                ctx.globalAlpha = 0.4; ctx.strokeStyle = '#ff9a3a'; ctx.lineWidth = 9; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(this.mx, this.my); ctx.lineTo(this.mx - 38, this.my - 108); ctx.stroke();
+                ctx.globalAlpha = 1; ctx.fillStyle = '#6b4a3a'; ctx.strokeStyle = '#ffd35a'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(this.mx, this.my, 13, 0, TAU); ctx.fill(); ctx.stroke();
+                ctx.fillStyle = '#4a3226'; ctx.beginPath(); ctx.arc(this.mx - 4, this.my - 3, 4, 0, TAU); ctx.fill();
+            } else {
+                const k = this.t / this.boom, rr = this.R * Math.min(1, this.t / 5);
+                ctx.globalAlpha = 0.8 * (1 - k); ctx.fillStyle = '#ffb347'; ctx.beginPath(); ctx.arc(this.x, this.y, rr, 0, TAU); ctx.fill();
+                ctx.globalAlpha = 1 - k; ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(this.x, this.y, rr, 0, TAU); ctx.stroke();
+            }
+            ctx.restore();
+        }
+    }
+
+    // ---- Polilla: entra por un borde (flecha de aviso), te persigue girando lento y luego se va ----------
+    class Moth {
+        constructor(side) {
+            const W = playAreaW, H = playAreaH;
+            this.kind = 'moth'; this.evLong = true; this.bombable = true; this.dead = false; this.grazed = false;
+            this.t = 0; this.warn = 44; this.r = 8; this.life = 240; this.leaving = false; this.side = side;
+            if (side === 0) { this.x = 30 + rnd() * (W - 60); this.y = -20; }
+            else if (side === 1) { this.x = -20; this.y = H * 0.12 + rnd() * H * 0.4; }
+            else { this.x = W + 20; this.y = H * 0.12 + rnd() * H * 0.4; }
+            this.mx = clamp(this.x, 16, W - 16); this.my = clamp(this.y, 16, H - 16);   // marcador de entrada
+            this.ang = Math.atan2(pcy() - this.y, pcx() - this.x);
+            this.spd = 1.6 + difficultySettings[currentDiff].bulletSpeed * 0.12; this.turn = 0.028;
+        }
+        update() {
+            this.t++; if (this.t < this.warn) return;
+            if (this.t === this.warn) tone('triangle', 900, 500, 0.12, 0.04);
+            if (!this.leaving && this.t > this.warn + this.life) this.leaving = true;
+            if (this.leaving) { this.y -= 3; if (this.y < -30) this.dead = true; return; }
+            const want = Math.atan2(pcy() - this.y, pcx() - this.x);
+            this.ang += clamp(wrapA(want - this.ang), -this.turn, this.turn);
+            this.x += Math.cos(this.ang) * this.spd; this.y += Math.sin(this.ang) * this.spd;
+            const d = Math.hypot(pcx() - this.x, pcy() - this.y);
+            if (d < this.r * 0.8 + 2) hurtPlayer(); else if (d < this.r + 18) grazeOnce(this);
+        }
+        draw() {
+            ctx.save();
+            if (this.t < this.warn) {
+                const p = this.t / this.warn, on = Math.floor(this.t / 4) % 2 === 0;
+                ctx.globalAlpha = 0.4 + 0.5 * p; ctx.fillStyle = on ? '#ff7ad9' : '#fff';
+                const rot = this.side === 0 ? PI / 2 : (this.side === 1 ? 0 : PI);   // flecha que apunta hacia adentro
+                ctx.translate(this.mx, this.my); ctx.rotate(rot);
+                ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -10); ctx.lineTo(-8, 10); ctx.closePath(); ctx.fill();
+            } else {
+                const fl = Math.sin(this.t * 0.6), a = this.leaving ? -PI / 2 : this.ang;
+                ctx.translate(this.x, this.y); ctx.rotate(a + PI / 2);
+                ctx.globalAlpha = 0.9; ctx.fillStyle = '#ffd0f0'; ctx.strokeStyle = '#a02a80'; ctx.lineWidth = 1.5;
+                for (const sg of [-1, 1]) { ctx.beginPath(); ctx.moveTo(0, -2); ctx.lineTo(sg * (12 + fl * 4), -9); ctx.lineTo(sg * (10 + fl * 3), 6); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+                ctx.fillStyle = '#5a1a4a'; ctx.beginPath(); ctx.ellipse(0, 0, 3, 8, 0, 0, TAU); ctx.fill();
+                ctx.fillStyle = '#ff7ad9'; ctx.beginPath(); ctx.arc(0, -8, 2, 0, TAU); ctx.fill();
+            }
+            ctx.restore();
+        }
+    }
+
+    // ---- Espiral estelar: núcleo que se carga y luego gira soltando brazos de balas -------------------
+    class Spiral {
+        constructor(x, y) {
+            this.kind = 'spiral'; this.evLong = true; this.bombable = true; this.dead = false;
+            this.x = x; this.y = y; this.t = 0; this.phase = 'warn'; this.dur = 150; this.a = rnd() * TAU; this.dir = rnd() < 0.5 ? 1 : -1;
+            this.warn = { facil: 80, medio: 66, dificil: 58, lunatico: 50 }[currentDiff] || 66;
+            this.arms = { facil: 2, medio: 3, dificil: 3, lunatico: 4 }[currentDiff] || 3;
+            this.step = currentDiff === 'facil' ? 10 : 9;
+        }
+        update() {
+            this.t++;
+            if (this.phase === 'warn') { if (this.t >= this.warn) { this.phase = 'fire'; this.t = 0; sfxCharge(); } return; }
+            if (this.t > this.dur) { this.dead = true; return; }
+            if (this.t % this.step === 0) {
+                const sp = difficultySettings[currentDiff].bulletSpeed * 0.48;
+                for (let k = 0; k < this.arms; k++) {
+                    const a = this.a + TAU / this.arms * k, b = new Bullet(this.x, this.y, true, false, Math.cos(a) * sp, Math.sin(a) * sp, 'player', 'orb');
+                    b.color = k % 2 ? '#7ff' : '#c9a6ff'; pushEnemyBullet(b);
+                }
+                this.a += this.dir * 0.30;
+                if (this.t % (this.step * 3) === 0) tone('triangle', 520, 380, 0.08, 0.025);
+            }
+        }
+        draw() {
+            ctx.save();
+            if (this.phase === 'warn') {
+                const p = this.t / this.warn, on = Math.floor(this.t / 4) % 2 === 0;
+                ctx.globalAlpha = 0.45 + 0.5 * p; ctx.strokeStyle = on ? '#c9a6ff' : '#fff'; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.arc(this.x, this.y, 70 * (1 - p) + 12, 0, TAU); ctx.stroke();
+                ctx.setLineDash([6, 8]); ctx.beginPath(); ctx.arc(this.x, this.y, 60, 0, TAU); ctx.stroke(); ctx.setLineDash([]);   // zona donde empiezan los brazos
+                ctx.fillStyle = on ? '#ffe14a' : '#fff'; ctx.beginPath(); ctx.arc(this.x, this.y, 4 + p * 8, 0, TAU); ctx.fill();
+            } else {
+                const fade = this.t > this.dur - 20 ? (this.dur - this.t) / 20 : 1;
+                ctx.globalAlpha = fade; ctx.translate(this.x, this.y); ctx.rotate(this.a);
+                ctx.fillStyle = '#2b1a44'; ctx.strokeStyle = '#c9a6ff'; ctx.lineWidth = 2; ctx.beginPath();
+                for (let i = 0; i < 10; i++) { const a = (i / 10) * TAU, rr = i % 2 ? 8 : 17; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+                ctx.closePath(); ctx.fill(); ctx.stroke();
+                ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, 4, 0, TAU); ctx.fill();
+            }
+            ctx.restore();
+        }
+    }
+
+    // ---- Bola rebotadora: aparece arriba con su dirección marcada y rebota unas cuantas veces ------------
+    class Ball {
+        constructor(x) {
+            const sp = 2.6 + difficultySettings[currentDiff].bulletSpeed * 0.16, a = PI / 2 + (rnd() - 0.5) * 1.3;
+            this.kind = 'ball'; this.evLong = true; this.bombable = true; this.dead = false; this.grazed = false;
+            this.x = x; this.y = 24; this.r = 15; this.t = 0; this.warn = 46; this.bounces = 0;
+            this.maxB = { facil: 2, medio: 3, dificil: 3, lunatico: 3 }[currentDiff] || 3;
+            this.vx = Math.cos(a) * sp; this.vy = Math.sin(a) * sp;
+        }
+        hit() {
+            if (++this.bounces > this.maxB) { createExplosion(this.x, this.y, '#7fe', 16); this.dead = true; return; }
+            tone('square', 420 + this.bounces * 90, 300, 0.07, 0.04);
+        }
+        update() {
+            this.t++; if (this.t < this.warn) return;
+            const W = playAreaW, H = playAreaH, r = this.r;
+            this.x += this.vx; this.y += this.vy;
+            if (this.x < r) { this.x = r; this.vx = Math.abs(this.vx); this.hit(); }
+            else if (this.x > W - r) { this.x = W - r; this.vx = -Math.abs(this.vx); this.hit(); }
+            if (this.y < r) { this.y = r; this.vy = Math.abs(this.vy); this.hit(); }
+            else if (this.y > H - r) { this.y = H - r; this.vy = -Math.abs(this.vy); this.hit(); }
+            if (this.dead) return;
+            const d = Math.hypot(pcx() - this.x, pcy() - this.y);
+            if (d < r * 0.8 + 2) hurtPlayer(); else if (d < r + 20) grazeOnce(this);
+        }
+        draw() {
+            ctx.save();
+            if (this.t < this.warn) {
+                const p = this.t / this.warn, on = Math.floor(this.t / 4) % 2 === 0;
+                ctx.globalAlpha = 0.3 + 0.5 * p; ctx.strokeStyle = on ? '#7ff' : '#fff'; ctx.lineWidth = 2; ctx.setLineDash([6, 8]);
+                ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(this.x + this.vx * 70, this.y + this.vy * 70); ctx.stroke(); ctx.setLineDash([]);
+                ctx.globalAlpha = 0.4 + 0.5 * p; ctx.beginPath(); ctx.arc(this.x, this.y, this.r * (0.4 + 0.6 * p), 0, TAU); ctx.stroke();
+            } else {
+                const left = this.maxB - this.bounces + 1, last = left <= 1, blink = last && Math.floor(this.t / 4) % 2 === 0;
+                ctx.fillStyle = blink ? '#ffd0d0' : '#aef'; ctx.strokeStyle = last ? '#ff3b3b' : '#2a6a8a'; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, TAU); ctx.fill(); ctx.stroke();
+                ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.7; ctx.beginPath(); ctx.arc(this.x - 5, this.y - 5, 4, 0, TAU); ctx.fill();
+                ctx.globalAlpha = 1; ctx.fillStyle = last ? '#ff3b3b' : '#2a6a8a';   // un puntito por cada rebote que le queda
+                for (let i = 0; i < left; i++) ctx.fillRect(this.x - (left * 4) / 2 + i * 4 + 0.5, this.y + 4, 3, 3);
+            }
+            ctx.restore();
+        }
+    }
+
+    // ---- Prensa de luz: una franja verde segura y dos barras (arriba y abajo) que se cierran ------------
+    class Press {
+        constructor() {
+            const H = playAreaH;
+            this.kind = 'press'; this.evLong = true; this.bombable = true; this.dead = false; this.grazed = false;
+            this.bandH = { facil: 190, medio: 160, dificil: 140, lunatico: 125 }[currentDiff] || 160;
+            this.cy = clamp(pcy() + (rnd() - 0.5) * 220, this.bandH / 2 + 30, H - this.bandH / 2 - 30);
+            this.y0 = this.cy - this.bandH / 2; this.y1 = this.cy + this.bandH / 2;
+            this.t = 0; this.slam = 22; this.hold = 30; this.back = 24;
+            this.warn = { facil: 90, medio: 76, dificil: 66, lunatico: 58 }[currentDiff] || 76;
+        }
+        ext() {
+            const u = this.t - this.warn; if (u <= 0) return 0;
+            if (u < this.slam) return (u / this.slam) * (u / this.slam);
+            if (u < this.slam + this.hold) return 1;
+            return Math.max(0, 1 - (u - this.slam - this.hold) / this.back);
+        }
+        update() {
+            this.t++;
+            const u = this.t - this.warn;
+            if (u === 1) { sfxWave(); }
+            if (u === this.slam) { screenShake = Math.max(screenShake, 8); sfxZap(); }
+            if (u > this.slam + this.hold + this.back) { this.dead = true; return; }
+            const e = this.ext(); if (e <= 0.02) return;
+            const top = this.y0 * e, bot = playAreaH - (playAreaH - this.y1) * e, py = pcy();
+            if (py < top || py > bot) hurtPlayer(); else if (e > 0.9 && (py < top + 18 || py > bot - 18)) grazeOnce(this);
+        }
+        draw() {
+            const W = playAreaW, H = playAreaH;
+            ctx.save();
+            if (this.t < this.warn) {
+                const p = this.t / this.warn, on = Math.floor(this.t / 4) % 2 === 0;
+                ctx.globalAlpha = 0.14 + 0.12 * Math.sin(this.t * 0.3) + 0.06; ctx.fillStyle = '#5fe08a'; ctx.fillRect(0, this.y0, W, this.bandH);   // franja segura
+                ctx.globalAlpha = on ? 0.95 : 0.5; ctx.strokeStyle = '#7dffa8'; ctx.lineWidth = 2; ctx.setLineDash([12, 8]);
+                ctx.beginPath(); ctx.moveTo(0, this.y0); ctx.lineTo(W, this.y0); ctx.moveTo(0, this.y1); ctx.lineTo(W, this.y1); ctx.stroke(); ctx.setLineDash([]);
+                ctx.globalAlpha = 0.25 + 0.5 * p; ctx.fillStyle = '#ff5a6a'; ctx.fillRect(0, 0, W, 6); ctx.fillRect(0, H - 6, W, 6);
+                ctx.globalAlpha = 0.9; ctx.fillStyle = on ? '#ffe14a' : '#fff'; ctx.font = '14px "Press Start 2P"'; ctx.textAlign = 'center';
+                ctx.fillText('▼', W * 0.25, 28); ctx.fillText('▼', W * 0.75, 28); ctx.fillText('▲', W * 0.25, H - 14); ctx.fillText('▲', W * 0.75, H - 14);
+            } else {
+                const e = this.ext(), top = this.y0 * e, bot = H - (H - this.y1) * e;
+                ctx.globalAlpha = 0.92; ctx.fillStyle = '#ff7aa0'; ctx.fillRect(0, 0, W, top); ctx.fillRect(0, bot, W, H - bot);
+                ctx.fillStyle = '#fff'; ctx.fillRect(0, top - 5, W, 5); ctx.fillRect(0, bot, W, 5);
+            }
+            ctx.restore();
+        }
+    }
+
+    // ---- Guiones de cada mini sección nueva (se llaman cada cuadro mientras corre) ------------
+    function startScripted(id) {
+        const f = evF(), W = playAreaW, H = playAreaH, d = D(), late2 = lunaticLate() >= 2;
+        ev.scriptDone = false;
+        const every = (t0, step, count, fn) => (t) => {     // ejecuta fn(i) cada `step` cuadros, `count` veces
+            if (t >= t0 && (t - t0) % step === 0 && (t - t0) / step < count) fn((t - t0) / step);
+            if (t >= t0 + (count - 1) * step) ev.scriptDone = true;
+        };
+        if (id === 'drop') {              // CAÍDA DE BLASTERS: caen en tandas de columnas distintas y cada uno dispara hacia abajo
+            const volleys = 3 + (late2 ? 1 : 0), cols = Math.max(4, Math.floor((W - 40) / 120)), cw = W / cols;
+            ev.script = every(10, d.tele + 100, volleys, () => {
+                const n = clamp(Math.round(2 * f), 2, cols - 2), pick = shuffle([...Array(cols).keys()]).slice(0, n);
+                for (const c of pick) evSpawn('blaster', cw * (c + 0.5) - 48, { holdY: 40 + rnd() * Math.min(200, H * 0.3), beamW: Math.min(d.beamW, cw * 0.5), hp: 4, fall: true, plan: [26] });
+            });
+        } else if (id === 'wind') {       // VIENTO DE HOJAS
+            const gusts = 3 + (late2 ? 1 : 0);
+            ev.script = every(10, 215, gusts, (i) => { hazards.push(new Gust(i % 2 === 0 ? 1 : -1)); sfxWind(); });
+        } else if (id === 'stars') {      // LLUVIA DE ESTRELLAS
+            const total = Math.round(20 * f), step = Math.max(14, Math.round(26 / f));
+            ev.script = every(20, step, total, () => hazards.push(new Star(rnd() < 0.5 ? clamp(pcx() + (rnd() - 0.5) * 220, 30, W - 30) : 30 + rnd() * (W - 60))));
+        } else if (id === 'wall') {       // MURO DE LUZ
+            const total = 3 + (late2 ? 1 : 0);
+            ev.script = every(20, 200, total, () => { hazards.push(new Wall()); sfxLock(); });
+        } else if (id === 'storm') {      // TORMENTA ELÉCTRICA
+            const total = Math.round(7 * f);
+            ev.script = every(20, 56, total, (i) => {
+                const x1 = i % 2 === 0 ? clamp(pcx() + (rnd() - 0.5) * 70, 30, W - 30) : 30 + rnd() * (W - 60);
+                hazards.push(new Bolt(x1));
+                if (f >= 1.2 && i % 3 === 2) hazards.push(new Bolt(clamp(x1 + (rnd() < 0.5 ? -1 : 1) * (170 + rnd() * 60), 30, W - 30)));   // a veces cae otro lejos del primero
+            });
+        } else if (id === 'mines') {      // CAMPO DE MINAS
+            const total = Math.round(6 * f);
+            ev.script = every(20, 42, total, () => {
+                let x, y, tries = 0;
+                do { x = 50 + rnd() * (W - 100); y = H * 0.22 + rnd() * H * 0.58; } while (Math.hypot(x - pcx(), y - pcy()) < 90 && ++tries < 8);
+                hazards.push(new Mine(x, y)); sfxLock();
+            });
+        } else if (id === 'laser') {      // LÁSERES LATERALES: la primera fila de cada tanda es la tuya; el resto, al azar (siempre quedan filas libres)
+            const laneH = 60, top = H * 0.2, lanes = Math.max(5, Math.floor((H - 70 - top) / laneH) + 1), volleys = 5 + (late2 ? 1 : 0);
+            ev.script = every(10, 130, volleys, (i) => {
+                const n = clamp(Math.round(2 * f), 2, lanes - 3), mine = clamp(Math.round((pcy() - top) / laneH), 0, lanes - 1);
+                const pick = [mine].concat(shuffle([...Array(lanes).keys()].filter(l => Math.abs(l - mine) > 0)).slice(0, n - 1));
+                pick.forEach((l, k) => hazards.push(new SideLaser(top + l * laneH, (i + k) % 2 === 0 ? 1 : -1)));
+                sfxLock();
+            });
+        } else if (id === 'meteor') {     // LLUVIA DE METEORITOS
+            const total = Math.round(9 * f), step = Math.max(20, Math.round(36 / f));
+            ev.script = every(20, step, total, (i) => {
+                const near = i % 2 === 0;
+                const x = near ? clamp(pcx() + (rnd() - 0.5) * 170, 60, W - 60) : 60 + rnd() * (W - 120);
+                const y = near ? clamp(pcy() + (rnd() - 0.5) * 130, H * 0.2, H - 70) : H * 0.2 + rnd() * (H * 0.65);
+                hazards.push(new Meteor(x, y)); sfxLock();
+            });
+        } else if (id === 'moth') {       // ENJAMBRE DE POLILLAS
+            const total = Math.round(6 * f);
+            ev.script = every(20, 40, total, () => { hazards.push(new Moth(Math.floor(rnd() * 3))); sfxWind(); });
+        } else if (id === 'spiral') {     // ESPIRAL ESTELAR
+            const total = f >= 1.2 ? 3 : 2;
+            ev.script = every(10, 260, total, (i) => { hazards.push(new Spiral(W * (0.3 + 0.4 * rnd()), 80 + rnd() * 40)); sfxLock(); });
+        } else if (id === 'ball') {       // BOLAS REBOTADORAS
+            const total = Math.round(3 * f);
+            ev.script = every(20, 60, total, () => { hazards.push(new Ball(40 + rnd() * (W - 80))); sfxLock(); });
+        } else if (id === 'press') {      // PRENSA DE LUZ
+            const total = 3 + (late2 ? 1 : 0);
+            ev.script = every(10, 190, total, () => { hazards.push(new Press()); sfxLock(); });
+        }
+    }
+
+    // ====================================================================
     //  MINI SECCIONES
     // ====================================================================
     function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
@@ -12235,18 +12803,28 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
                 evSpawn('blaster', sp * (i + 1) - ew / 2,
                     { holdY: 46, aim: true, beamW: d.beamW * 0.85, hp: 6, plan: [40 + i * 55, 40 + i * 55 + gap, 40 + i * 55 + gap * 2] });
             }
-        } else {
+        } else if (id === 'waves') {
             // pulsers que lanzan ondas expansivas hacia abajo con una abertura segura
             const n = Math.min(d.pulseN, Math.max(1, Math.floor((W - 40) / 190)));
             for (let i = 0; i < n; i++) {
                 const x = (n === 1 ? 0.5 : 0.16 + 0.68 * i / (n - 1)) * W - ew / 2;
                 evSpawn('pulser', x, { holdY: 44, pulses: 1, hp: 6, plan: [40 + i * 110, 40 + i * 110 + tele + 190] });
             }
+        } else {
+            startScripted(id);   // v27: mini secciones con guion (hojas, estrellas, muro, tormenta, minas, caída de blasters)
         }
+    }
+
+    // v28: con 15 mini secciones, cada oleada prefiere las que NO salieron en las últimas oleadas (menos repetición)
+    let recentEv = [];
+    function pickPlan() {
+        const fresh = shuffle(EVENTS.filter(e => !recentEv.includes(e.id))), old = shuffle(EVENTS.filter(e => recentEv.includes(e.id)));
+        return fresh.concat(old);
     }
 
     function startEvent() {
         ev = { def: evPlan[evIdx], state: 'announce', t: 0, runT: 0, spawned: [] };
+        recentEv.push(ev.def.id); if (recentEv.length > 6) recentEv.shift();
         playSpecialAlertSound();
     }
 
@@ -12284,9 +12862,11 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
             return;
         }
         ev.runT++;
+        if (ev.script) ev.script(ev.runT);
         const alive = ev.spawned.some(e => enemies.includes(e));
-        const busy = hazards.some(h => h.kind === 'wave' || (h.kind === 'beam' && h.phase === 'fire'));
-        if ((!alive && !busy && ev.runT > 30) || ev.runT > EVENT_TIMEOUT) { ev = null; evIdx++; evCool = 90; }
+        const busy = hazards.some(h => h.kind === 'wave' || h.evLong || (h.kind === 'beam' && h.phase === 'fire'));
+        const scripting = !!ev.script && !ev.scriptDone;
+        if ((!alive && !busy && !scripting && ev.runT > 30) || ev.runT > EVENT_TIMEOUT) { ev = null; evIdx++; evCool = 90; }
     }
 
     // ====================================================================
@@ -12328,7 +12908,7 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
 
             // plan de mini secciones nuevo para cada oleada (1 y 2 de cada nivel)
             const key = currentWave + ':' + levelPhase;
-            if (key !== evKey) { evKey = key; evPlan = shuffle(EVENTS); evIdx = 0; ev = null; evCool = 0; roleTimer = 200; hazards = []; }
+            if (key !== evKey) { evKey = key; evPlan = pickPlan(); evIdx = 0; ev = null; evCool = 0; roleTimer = 200; hazards = []; }
 
             const dur = (typeof waveDurFor === 'function') ? waveDurFor() : 3000;
 
@@ -12351,7 +12931,7 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
             let firing = false;
             for (let i = hazards.length - 1; i >= 0; i--) {
                 const h = hazards[i];
-                if (bombing) { if (h.kind === 'wave') h.dead = true; if (h.kind === 'beam' && h.phase === 'fire') h.harmless = true; }
+                if (bombing) { if (h.kind === 'wave' || h.bombable) h.dead = true; if (h.kind === 'beam' && h.phase === 'fire') h.harmless = true; }
                 h.update();
                 if (h.dead) { hazards.splice(i, 1); continue; }
                 h.draw();
@@ -12362,7 +12942,7 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
 
         // utilidades por si quieren probarse desde la consola
         _RoleEnemy: RoleEnemy,
-        _debugStartEvent(i) { if (!ev) { evPlan = EVENTS.slice(); evIdx = i || 0; startEvent(); } }
+        _debugStartEvent(i) { if (!ev) { evPlan = EVENTS.slice(); evIdx = i || 0; startEvent(); API._last = ev.def.id; } }
     };
 
     window.WaveAttacks = API;
