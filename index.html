@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <title>Space Game</title>
+    <!-- Tipografías: Press Start 2P (títulos) y VT323 (pixel fina). Si no hay internet, cae a monospace. -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&family=Noto+Serif+JP:wght@700;900&family=Cinzel:wght@600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --cyan: #0ff;
+            --magenta: #f0f;
+            --ink: #05101c;
+            --panel: rgba(2, 14, 26, 0.80);
+            --gold: #ffd84a;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            background-color: #050505;
+            color: #fff;
+            font-family: 'Press Start 2P', monospace, cursive;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        :fullscreen body { background-color: #000; }
+
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100dvh;
+            box-sizing: border-box;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.3);
+            border: 2px solid #0ff;
+            border-radius: 0;
+            overflow: hidden;
+            transform-origin: center center;
+            flex-shrink: 0;
+            touch-action: none;
+        }
+        /* Con el efecto CRT activo, las esquinas se redondean como en un monitor de tubo */
+        #gameContainer.crt-on { border-radius: 14px; }
+
+        /* ==============================================
+           EFECTO CRT (barato): todo estático salvo dos animaciones de opacity/transform
+           que corren en la GPU. Ver applyCRT() en game.js.
+           ============================================== */
+        #crtOverlay {
+            position: absolute; inset: 0; z-index: 150; pointer-events: none; overflow: hidden;
+            background:
+                radial-gradient(ellipse at center, rgba(0,0,0,0) 58%, rgba(0,0,0,0.38) 100%),
+                linear-gradient(rgba(0,0,0,0) 50%, rgba(0,0,0,0.20) 50%),
+                linear-gradient(90deg, rgba(255,0,0,0.05), rgba(0,255,0,0.02), rgba(0,0,255,0.05));
+            background-size: 100% 100%, 100% 4px, 3px 100%;
+        }
+        #crtOverlay::before {            /* parpadeo muy sutil del fósforo */
+            content: ''; position: absolute; inset: 0; background: rgba(160, 255, 230, 0.035);
+            animation: crtFlicker 0.18s steps(2, end) infinite; will-change: opacity;
+        }
+        #crtOverlay::after {             /* barra de refresco que baja lentamente */
+            content: ''; position: absolute; left: 0; right: 0; top: -30%; height: 22%;
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.05), rgba(255,255,255,0));
+            animation: crtRoll 8s linear infinite; will-change: transform;
+        }
+        @keyframes crtFlicker { 0% { opacity: 0.2; } 50% { opacity: 1; } 100% { opacity: 0.55; } }
+        @keyframes crtRoll { from { transform: translateY(0); } to { transform: translateY(640%); } }
+        #crtOverlay.crt-static::before { animation: none; opacity: 0.5; }
+        #crtOverlay.crt-static::after { display: none; }
+        @media (prefers-reduced-motion: reduce) {
+            #crtOverlay::before { animation: none; opacity: 0.5; }
+            #crtOverlay::after { display: none; }
+        }
+
+        canvas { display: block; background-color: #000; }
+
+        /* ==============================================
+           MENÚ PRINCIPAL
+           ============================================== */
+        #menuUI {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(ellipse at center, rgba(0,5,10,0.35) 0%, rgba(0,5,10,0.70) 75%, rgba(0,5,10,0.90) 100%);
+            display: flex; flex-direction: column; align-items: center;
+            z-index: 10; overflow-y: auto; overflow-x: hidden;
+        }
+        .menu-shell {                     /* margin:auto centra sin cortar el borde superior si hay que hacer scroll */
+            margin: auto 0; padding: 18px 0; width: 100%;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .hidden { display: none !important; }
+
+        /* --- Logo --- */
+        .logo { text-align: center; margin-bottom: 16px; position: relative; }
+        .glitch-text {
+            position: relative; margin: 0; display: inline-block;
+            font-size: clamp(22px, 4.4vw, 40px); line-height: 1.3; letter-spacing: 3px;
+            color: #fff;
+            background: linear-gradient(180deg, #fff 0%, #aff 38%, #0ff 62%, #08c 100%);
+            -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 10px rgba(0,255,255,0.65));
+            animation: titleFloat 3.4s ease-in-out infinite;
+        }
+        .glitch-text::before, .glitch-text::after {   /* copias desfasadas magenta/azul: aberración cromática */
+            content: attr(data-text); position: absolute; left: 0; top: 0; width: 100%;
+            -webkit-text-fill-color: currentColor; background: none; pointer-events: none;
+        }
+        .glitch-text::before { color: rgba(255, 0, 255, 0.55); transform: translate(3px, 2px); z-index: -1; }
+        .glitch-text::after  { color: rgba(0, 80, 255, 0.55);  transform: translate(-3px, -2px); z-index: -1; }
+        @keyframes titleFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+
+        .logo-sub { font-family: 'VT323', monospace; font-size: clamp(16px, 2.6vw, 24px); color: #9cc; letter-spacing: 6px; margin-top: 6px; }
+        .logo-tag { font-size: 7px; color: var(--magenta); letter-spacing: 3px; margin-top: 8px; animation: tagBlink 1.6s steps(2, end) infinite; }
+        @keyframes tagBlink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.35; } }
+
+        /* --- Paneles --- */
+        .menu-layout {
+            display: flex; width: 92%; max-width: 820px; gap: 18px;
+            justify-content: center; align-items: stretch; animation: fadeIn 0.8s ease-out;
+        }
+        .left-panel, .right-panel {
+            --c: #0ff;
+            display: flex; flex-direction: column; padding: 16px; position: relative; overflow: hidden;
+            border: 1px solid rgba(0,255,255,0.28); border-radius: 6px;
+            /* esquinas tipo "visor": 4 L pequeñas dibujadas con gradientes */
+            background:
+                linear-gradient(var(--c), var(--c)) top left / 16px 2px no-repeat,
+                linear-gradient(var(--c), var(--c)) top left / 2px 16px no-repeat,
+                linear-gradient(var(--c), var(--c)) top right / 16px 2px no-repeat,
+                linear-gradient(var(--c), var(--c)) top right / 2px 16px no-repeat,
+                linear-gradient(var(--c), var(--c)) bottom left / 16px 2px no-repeat,
+                linear-gradient(var(--c), var(--c)) bottom left / 2px 16px no-repeat,
+                linear-gradient(var(--c), var(--c)) bottom right / 16px 2px no-repeat,
+                linear-gradient(var(--c), var(--c)) bottom right / 2px 16px no-repeat,
+                var(--panel);
+            box-shadow: inset 0 0 22px rgba(0,255,255,0.12), 0 0 14px rgba(0,255,255,0.10);
+        }
+        .left-panel::before, .right-panel::before {  /* brillo que cruza el panel (solo transform: barato) */
+            content: ''; position: absolute; top: 0; left: 0; width: 35%; height: 100%;
+            background: linear-gradient(100deg, transparent, rgba(0,255,255,0.09), transparent);
+            transform: translateX(-120%); animation: panelSheen 6s linear infinite; pointer-events: none;
+        }
+        .right-panel::before { animation-delay: 2.4s; }
+        @keyframes panelSheen { 0% { transform: translateX(-120%); } 60%, 100% { transform: translateX(380%); } }
+
+        .left-panel { width: 42%; }
+        .right-panel { width: 58%; gap: 8px; }
+
+        .panel-title {
+            font-size: 9px; text-align: center; margin: 0 0 12px; color: #fff; letter-spacing: 1px;
+            text-shadow: 0 0 6px #0ff; line-height: 1.6;
+        }
+        .panel-title span { font-size: 7px; color: #8ab; text-shadow: none; }
+
+        .field-label { font-size: 7px; color: #6cd; letter-spacing: 2px; margin: 4px 0 0; }
+        .field-label::before { content: '◆ '; color: var(--magenta); }
+
+        /* --- Selección de nave --- */
+        .vertical-ships { display: flex; flex-direction: column; gap: 9px; }
+        .ship-btn {
+            position: relative;
+            display: flex; align-items: center; justify-content: flex-start; gap: 14px;
+            margin: 0; padding: 9px 12px; background: rgba(8, 20, 34, 0.9); color: #0ff;
+            font-family: inherit; border: 1px solid #25506a; border-left: 3px solid #25506a;
+            border-radius: 4px; cursor: pointer; outline: none;
+            transition: transform 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+            opacity: 0; animation: shipSlideIn 0.45s ease-out forwards;
+        }
+        .ship-btn:nth-child(1) { animation-delay: 0.10s; }
+        .ship-btn:nth-child(2) { animation-delay: 0.20s; }
+        .ship-btn:nth-child(3) { animation-delay: 0.30s; }
+        .ship-btn:nth-child(4) { animation-delay: 0.40s; }
+        @keyframes shipSlideIn { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: translateX(0); } }
+        .ship-btn:hover, .ship-btn:focus-visible { transform: translateX(4px); border-color: #0ff; background: rgba(0, 255, 255, 0.10); }
+        .ship-btn.active {
+            background: linear-gradient(90deg, rgba(0,255,255,0.95), rgba(0,200,230,0.80));
+            color: #021018; border-color: #0ff; box-shadow: 0 0 16px rgba(0, 255, 255, 0.5);
+            transform: translateX(4px);
+        }
+        .ship-btn.active::after { content: '◀'; position: absolute; right: 10px; font-size: 9px; color: #021018; }
+
+        .ship-info { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; }
+        .ship-name { font-size: 9px; }
+        .ship-desc { font-size: 7px; opacity: 0.8; }
+
+        .ship-icon { width: 30px; height: 30px; flex: none; display: block; position: relative; filter: drop-shadow(0 0 4px rgba(0,255,255,0.4)); }
+        .ship-icon::before, .ship-icon::after { content: none; }
+        .ship1 { background: linear-gradient(90deg, #5b6578 0 14%, #0a0 14% 38%, #ffd84a 38% 46%, #0a0 46% 54%, #ffd84a 54% 62%, #0a0 62% 86%, #5b6578 86%); clip-path: polygon(50% 0, 62% 24%, 70% 12%, 78% 12%, 80% 44%, 100% 70%, 100% 100%, 0 100%, 0 70%, 20% 44%, 22% 12%, 30% 12%, 38% 24%); }
+        .ship2 { background: linear-gradient(180deg, #fff 0%, #8cf 25%, #26f 100%); clip-path: polygon(50% 0, 56% 40%, 100% 96%, 58% 78%, 54% 100%, 46% 100%, 42% 78%, 0 96%, 44% 40%); }
+        .ship3 { background: linear-gradient(180deg, #fffbe0 0%, #fc0 60%, #f90 100%); clip-path: polygon(50% 0, 70% 50%, 100% 100%, 50% 76%, 0 100%, 30% 50%); }
+        .ship4 { background: radial-gradient(circle at 50% 56%, #fff 0 8%, #fa4 9% 18%, transparent 19%), linear-gradient(0deg, #f66 0%, #c00 100%); clip-path: polygon(50% 0, 100% 80%, 62% 90%, 50% 70%, 38% 90%, 0 80%); }
+        .ship-btn.active .ship-icon { filter: drop-shadow(0 0 3px rgba(0,0,0,0.6)); }
+
+        /* --- Entradas del panel derecho --- */
+        input[type="text"], input[type="number"], .native-select {
+            width: 100%; margin: 0; padding: 10px; font-size: 9px; font-family: inherit;
+            background: rgba(6, 18, 30, 0.95); color: #0ff; border: 1px solid #25506a; border-radius: 4px; outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s; box-sizing: border-box;
+        }
+        input::placeholder { color: #4a7890; }
+        input:focus { border-color: #0ff; box-shadow: 0 0 10px rgba(0, 255, 255, 0.45); }
+        /* los <select> originales siguen existiendo (el juego lee su valor) pero se manejan con los botones de abajo */
+        .native-select { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; padding: 0; border: 0; }
+
+        .chip-group { display: grid; gap: 6px; }
+        .chip-group.cols-2 { grid-template-columns: 1fr 1fr; }
+        .chip {
+            --tone: #0ff;
+            display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 9px 4px;
+            background: rgba(6, 18, 30, 0.95); color: #9bb; font-family: inherit; font-size: 8px;
+            border: 1px solid #25506a; border-radius: 4px; cursor: pointer; outline: none;
+            transition: transform 0.12s, border-color 0.12s, color 0.12s, background 0.12s, box-shadow 0.12s;
+        }
+        .chip small { font-size: 6px; opacity: 0.75; }
+        .chip:hover, .chip:focus-visible { border-color: var(--tone); color: var(--tone); transform: translateY(-1px); }
+        .chip.active { background: var(--tone); color: #02101a; border-color: var(--tone); box-shadow: 0 0 14px var(--tone); }
+        .chip[data-value="facil"]    { --tone: #5f9; }
+        .chip[data-value="medio"]    { --tone: #0ff; }
+        .chip[data-value="dificil"]  { --tone: #fa3; }
+        .chip[data-value="lunatico"] { --tone: #ff4d6a; }
+        .chip[data-value="infinito"] { --tone: #f8f; }
+
+        #lunaticHint { display: none; font-size: 7px; color: #ff4d6a; text-align: center; margin: 0; line-height: 1.6; }
+
+        #optionsModal {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.82); z-index: 100;
+            display: flex; justify-content: center; align-items: center; padding: 10px; box-sizing: border-box;
+        }
+
+        .btn-row { display: flex; gap: 8px; margin-top: 4px; }
+        .btn-secondary {
+            flex: 0 0 auto; background: rgba(8,20,34,0.95); color: #9bc; border: 1px solid #36607a;
+            font-size: 9px; padding: 12px 12px; cursor: pointer; border-radius: 4px; font-family: inherit;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .btn-secondary:hover { background: #12303f; color: #fff; border-color: #0ff; }
+
+        .pulse-btn {
+            position: relative; flex: 1; font-size: 14px; padding: 13px 10px; font-family: inherit;
+            background: linear-gradient(180deg, #19f0ff, #0aa); color: #021018; border: 2px solid #aff; border-radius: 4px;
+            cursor: pointer; letter-spacing: 2px; transition: transform 0.15s, filter 0.15s;
+            box-shadow: 0 0 18px rgba(0,255,255,0.45), inset 0 -4px 0 rgba(0,0,0,0.25);
+        }
+        .pulse-btn::after {              /* anillo que se expande: solo transform + opacity */
+            content: ''; position: absolute; inset: -2px; border: 2px solid #0ff; border-radius: 4px;
+            animation: ringPulse 1.8s ease-out infinite; pointer-events: none;
+        }
+        @keyframes ringPulse { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(1.16, 1.5); opacity: 0; } }
+        .pulse-btn:hover { transform: scale(1.03); filter: brightness(1.15); }
+        .pulse-btn:active { transform: scale(0.98); }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- Ranking --- */
+        #leaderboard {
+            margin-top: 6px; border: 1px solid #25506a; padding: 8px 10px; width: 100%;
+            max-height: 112px; overflow-y: auto; text-align: left; font-size: 8px;
+            background: rgba(0,0,0,0.45); border-radius: 4px; box-sizing: border-box;
+        }
+        #leaderboard h3 { text-align: center; margin: 0 0 6px; font-size: 8px; color: var(--gold); letter-spacing: 2px; }
+        #leaderboard::-webkit-scrollbar { width: 5px; }
+        #leaderboard::-webkit-scrollbar-track { background: #08121c; }
+        #leaderboard::-webkit-scrollbar-thumb { background: #0ff; }
+        .score-entry { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dashed #234; padding: 5px 0; color: #cde; }
+        #scoreList .score-entry:nth-child(1) { color: var(--gold); }
+        #scoreList .score-entry:nth-child(2) { color: #dfe8f0; }
+        #scoreList .score-entry:nth-child(3) { color: #e9955a; }
+
+        .controls-hint { margin-top: 14px; font-family: 'VT323', monospace; font-size: 17px; color: #7aa; letter-spacing: 1px; text-align: center; padding: 0 10px; }
+        .controls-hint b { color: #0ff; font-weight: normal; border: 1px solid #25506a; border-radius: 3px; padding: 0 5px; margin: 0 2px; }
+
+        /* --- Opciones --- */
+        .options-box {
+            width: 360px; max-width: 100%; max-height: 100%; overflow-y: auto; box-sizing: border-box;
+            background: #0a1626; border: 2px solid #0ff; border-radius: 8px; padding: 18px;
+            display: flex; flex-direction: column; gap: 12px; font-size: 9px;
+            box-shadow: 0 0 24px rgba(0, 255, 255, 0.4);
+        }
+        .options-box h2 { text-align: center; font-size: 12px; color: #0ff; margin: 0 0 2px; letter-spacing: 2px; }
+        .options-group { font-size: 7px; color: var(--magenta); letter-spacing: 2px; margin: 4px 0 -4px; border-bottom: 1px solid #1b3a52; padding-bottom: 4px; }
+        .options-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .options-row label { cursor: pointer; display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: center; gap: 8px; width: 100%; line-height: 1.5; }
+        .options-row input[type="number"] { width: 64px; padding: 6px; text-align: center; }
+
+        /* Interruptores (los checkbox originales, con otra cara) */
+        .options-row input[type="checkbox"] {
+            -webkit-appearance: none; appearance: none; flex: none; position: relative; cursor: pointer;
+            width: 36px; height: 18px; margin: 0; border-radius: 9px; background: #14283a; border: 1px solid #36607a;
+            transition: background 0.18s, border-color 0.18s;
+        }
+        .options-row input[type="checkbox"]::after {
+            content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%;
+            background: #7fa; background: #8ab; transition: transform 0.18s, background 0.18s;
+        }
+        .options-row input[type="checkbox"]:checked { background: rgba(0,255,255,0.28); border-color: #0ff; }
+        .options-row input[type="checkbox"]:checked::after { transform: translateX(18px); background: #0ff; }
+        .options-row input[type="checkbox"]:disabled { cursor: not-allowed; }
+        .options-row input[type="checkbox"]:focus-visible { box-shadow: 0 0 8px #0ff; }
+
+        .fullscreen-btn {
+            background: rgba(8,20,34,0.95); color: #0ff; border: 1px solid #0ff; border-radius: 4px;
+            padding: 10px; font-family: inherit; font-size: 8px; cursor: pointer; width: 100%;
+        }
+        .fullscreen-btn:hover { background: #0ff; color: #000; }
+
+        /* --- Pantallas angostas / bajitas (teléfono): el menú se apila y se hace scroll --- */
+        @media (max-width: 720px) {
+            .menu-layout { flex-direction: column; }
+            .left-panel, .right-panel { width: auto; }
+            .vertical-ships { display: grid; grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-height: 520px) {
+            .menu-shell { padding: 8px 0; }
+            .logo { margin-bottom: 8px; }
+            .logo-sub, .logo-tag, .controls-hint { display: none; }
+            .left-panel, .right-panel { padding: 10px; }
+        }
+
+
+        /* --- Nave 5 (Reimu) --- */
+        .ship-btn:nth-child(5) { animation-delay: 0.50s; }
+        .ship-btn:nth-child(6) { animation-delay: 0.60s; }
+        .ship-btn:nth-child(7) { animation-delay: 0.70s; }
+        /* Nave 7 (Goku): oculta hasta que se toca la esfera del dragón; su icono lo pone goku.js (--goku-icon) */
+        .ship7 { background: var(--goku-icon, none) center / contain no-repeat; image-rendering: pixelated; clip-path: none; }
+        .ship-btn.goku-hidden { display: none !important; }
+        .ship6 { background: linear-gradient(180deg, #ffe45a 0%, #ffd848 40%, #7a4bd8 100%); clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+        .ship5 { background: linear-gradient(180deg, #fff 0%, #fff 30%, #e8283c 30%, #c8102e 100%); clip-path: polygon(50% 0, 62% 30%, 100% 62%, 88% 100%, 12% 100%, 0 62%, 38% 30%); }
+        .ship-btn.locked { filter: grayscale(1); opacity: 0.55; }
+        .ship-btn.locked .ship-icon { background: #456; }
+        .ship-btn.shake { animation: lockShake 0.4s; }
+        @keyframes lockShake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+
+        /* --- Misiones diarias --- */
+        #missionsBox { margin-top: 4px; border: 1px solid #25506a; border-radius: 4px; padding: 8px 10px; background: rgba(0,0,0,0.45); width: 100%; box-sizing: border-box; }
+        .mi-head { display: flex; justify-content: space-between; font-size: 8px; color: var(--gold); letter-spacing: 2px; margin-bottom: 6px; }
+        .mi-count { color: #0ff; }
+        .mi-row { --tone: #0ff; margin-bottom: 7px; }
+        .mi-text { font-family: 'VT323', monospace; font-size: 17px; line-height: 1.05; color: #dff; }
+        .mi-tier { color: var(--tone); font-size: 10px; letter-spacing: 1px; }
+        .mi-bar { height: 5px; background: #0b1a28; border: 1px solid #1d4660; margin-top: 3px; }
+        .mi-bar i { display: block; height: 100%; background: var(--tone); box-shadow: 0 0 6px var(--tone); }
+        .mi-meta { font-family: 'VT323', monospace; font-size: 14px; color: #7aa; margin-top: 1px; }
+        .mi-row.done .mi-text { color: #7fa; text-decoration: line-through; opacity: 0.8; }
+        .mi-row.done .mi-meta { color: #5f9; }
+        .mi-foot { font-family: 'VT323', monospace; font-size: 16px; color: #ffd84a; border-top: 1px dashed #234; padding-top: 4px; }
+        .mi-bonus { color: #5f9; font-weight: normal; }
+        #coinRow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+        .co-label { font-size: 6px; color: #8ab; letter-spacing: 1px; margin-right: 4px; }
+        .co { width: 15px; height: 15px; border-radius: 50%; background: #1b2b38; border: 1px solid #36607a; color: #36607a; font-size: 7px; display: flex; align-items: center; justify-content: center; }
+        .co.on { background: radial-gradient(circle at 35% 30%, #fff6a8, #ffd84a 55%, #c88800); border-color: #fff3a0; color: #6a4400; box-shadow: 0 0 8px rgba(255,216,74,0.6); }
+        .co-unlock { font-size: 6px; color: #ff7a90; margin-left: 4px; }
+
+        /* --- Controles táctiles (v2: analógico, flotante, multitáctil) --- */
+        #mobileControls {
+            --mc-scale: 1; --mc-opacity: 0.7;
+            --mc-u: calc(var(--mc-scale) * clamp(60px, 15vmin, 92px));
+            position: absolute; inset: 0; z-index: 5; pointer-events: none; display: flex; justify-content: space-between; align-items: flex-end;
+            padding: max(22px, env(safe-area-inset-top)) max(22px, env(safe-area-inset-right)) 30px max(22px, env(safe-area-inset-left)); box-sizing: border-box;
+            user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; -webkit-tap-highlight-color: transparent;
+        }
+        #mobileControls.lefty { flex-direction: row-reverse; }
+        #mobileControls button, #mobileControls .action-btn { font-family: "Press Start 2P", monospace; touch-action: none; }
+        #joyCatch { position: absolute; left: 0; top: 22%; bottom: 0; width: 50%; pointer-events: auto; touch-action: none; }
+        #mobileControls.lefty #joyCatch { left: auto; right: 0; }
+        #joystickZone { position: relative; width: calc(var(--mc-u) * 1.9); height: calc(var(--mc-u) * 1.9); pointer-events: none; }
+        #joystickBase {
+            width: calc(var(--mc-u) * 1.9); height: calc(var(--mc-u) * 1.9); border-radius: 50%; position: relative; box-sizing: border-box;
+            background: radial-gradient(circle, rgba(0,255,255,0.10) 0 55%, rgba(0,255,255,0.22) 100%); border: 3px solid rgba(0,255,255,0.55);
+            opacity: calc(var(--mc-opacity) * 0.75); display: flex; justify-content: center; align-items: center; pointer-events: none;
+            box-shadow: inset 0 0 0 2px rgba(0,0,0,0.35);
+        }
+        #joystickBase::before { content: ""; position: absolute; inset: 14%; border-radius: 50%; border: 2px dashed rgba(0,255,255,0.35); }
+        #joystickBase.floating { position: absolute; }
+        #joystickBase.held { opacity: var(--mc-opacity); }
+        #joystickStick {
+            width: calc(var(--mc-u) * 0.82); height: calc(var(--mc-u) * 0.82); border-radius: 50%; position: absolute;
+            background: radial-gradient(circle at 35% 30%, #d8ffff, #19d7e8 60%, #0a8a99); border: 3px solid #0a3a44; box-shadow: 0 3px 0 rgba(0,0,0,0.4);
+        }
+        #mcRight { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: none; position: relative; }
+        .action-buttons { display: flex; gap: calc(var(--mc-u) * 0.2); align-items: flex-end; pointer-events: none; }
+        .action-btn, #btnAuto, #btnPause, #btnRetroExit {
+            pointer-events: auto; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #fff; text-align: center;
+            border-radius: 50%; box-sizing: border-box; opacity: var(--mc-opacity); transition: transform 0.05s, opacity 0.1s;
+            text-shadow: 0 2px 0 rgba(0,0,0,0.6);
+        }
+        .action-btn b { font-size: calc(var(--mc-u) * 0.3); line-height: 1; }
+        .action-btn i { font-style: normal; font-size: calc(var(--mc-u) * 0.115); margin-top: 4px; letter-spacing: 0; }
+        .action-btn.pressed { transform: scale(0.92); opacity: 1; filter: brightness(1.4); }
+        #btnShoot { width: calc(var(--mc-u) * 1.25); height: calc(var(--mc-u) * 1.25); background: radial-gradient(circle at 35% 30%, rgba(120,255,120,0.55), rgba(0,170,0,0.45)); border: 3px solid rgba(150,255,150,0.8); }
+        #btnBomb { width: calc(var(--mc-u) * 0.98); height: calc(var(--mc-u) * 0.98); background: radial-gradient(circle at 35% 30%, rgba(255,120,120,0.5), rgba(190,0,0,0.45)); border: 3px solid rgba(255,140,140,0.8); margin-bottom: calc(var(--mc-u) * 0.55); }
+        #btnFocus { width: calc(var(--mc-u) * 0.78); height: calc(var(--mc-u) * 0.78); background: radial-gradient(circle at 35% 30%, rgba(190,160,255,0.5), rgba(90,50,200,0.45)); border: 3px solid rgba(200,180,255,0.8); margin-bottom: calc(var(--mc-u) * 0.3); }
+        #btnFocus b { font-size: calc(var(--mc-u) * 0.17); }
+        #mobileControls.focus-on #btnFocus { box-shadow: 0 0 18px #b9a0ff; }
+        #btnAuto { width: calc(var(--mc-u) * 0.78); height: calc(var(--mc-u) * 0.42); border-radius: 999px; font-size: calc(var(--mc-u) * 0.15); background: rgba(40,40,60,0.55); border: 2px solid rgba(255,255,255,0.45); }
+        #btnAuto.on { background: rgba(255,210,60,0.6); border-color: #ffe27a; color: #2a1c00; text-shadow: none; }
+        #btnPause, #btnRetroExit {
+            position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left)); width: calc(var(--mc-u) * 0.55); height: calc(var(--mc-u) * 0.55);
+            background: rgba(20,20,40,0.55); border: 2px solid rgba(255,255,255,0.5); font-size: calc(var(--mc-u) * 0.2); padding: 0;
+        }
+        #btnRetroExit { width: auto; border-radius: 10px; padding: 0 12px; font-size: calc(var(--mc-u) * 0.14); background: rgba(160,20,40,0.6); }
+        #btnRetroExit, #mobileControls.retro #btnPause, #mobileControls.retro #btnFocus, #mobileControls.retro #btnAuto { display: none; }
+        #mobileControls.retro #btnRetroExit { display: flex; }
+        #mobileControls.retro #btnBomb { background: radial-gradient(circle at 35% 30%, rgba(120,190,255,0.55), rgba(0,80,200,0.45)); border-color: rgba(150,200,255,0.85); }
+        #pauseOverlay { position: absolute; inset: 0; z-index: 30; background: rgba(8,4,20,0.78); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; font-family: "Press Start 2P", monospace; color: #fff; }
+        #pauseOverlay h2 { font-size: 24px; color: #ffe27a; margin: 0 0 8px; letter-spacing: 3px; }
+        #pauseOverlay button { font-family: inherit; font-size: 13px; padding: 14px 22px; min-width: 220px; border-radius: 6px; border: 3px solid #fff; background: #2a1a60; color: #fff; }
+        #pauseOverlay { overflow-y: auto; padding: 12px; box-sizing: border-box; }
+        @media (max-height: 460px) { #pauseOverlay { gap: 8px; } #pauseOverlay h2 { font-size: 18px; margin: 0; } #pauseOverlay button { padding: 9px 18px; font-size: 11px; } }
+        #optionsModal .run-note { display: none; }
+        #optionsModal.in-run .run-note { display: flex; }
+        #optionsModal.in-run .lock-run { opacity: 0.35; pointer-events: none; }
+        #pauseOverlay .hint { font-size: 8px; color: #9ab; max-width: 280px; text-align: center; line-height: 1.6; }
+
+        @keyframes flashBomb {
+            0% { background: rgba(255, 255, 0, 0.8); box-shadow: 0 0 20px #ff0; }
+            50% { background: rgba(255, 0, 0, 0.8); box-shadow: 0 0 20px #f00; }
+            100% { background: rgba(255, 255, 0, 0.8); box-shadow: 0 0 20px #ff0; }
+        }
+        .bomb-ready { animation: flashBomb 0.5s infinite !important; border-color: #fff !important; }
+    
+/* ============================================================================
+   touhou_ui.css — Menú estilo "Touhou 6" (niebla escarlata, luna roja, serifas, lista escalonada).
+   Se carga DESPUÉS del <style> de index.html y pisa los colores cian/magenta del menú antiguo.
+   El escenario animado (intro + fondo) se dibuja en <canvas id="thStage"> (touhou_ui.js).
+   ============================================================================ */
+:root {
+    --th-blood: #b0122a;
+    --th-crimson: #e0243a;
+    --th-deep: #1a0508;
+    --th-paper: #f6e7dc;
+    --th-gold: #ffd98a;
+    --th-serif: 'Noto Serif JP', 'Cinzel', 'Hiragino Mincho ProN', 'Yu Mincho', Georgia, serif;
+    --th-caps: 'Cinzel', 'Noto Serif JP', Georgia, serif;
+}
+
+/* El lienzo del escenario queda debajo del menú y encima del lienzo del juego */
+#thStage { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 9; background: #0a0204; display: block; }
+#thStage.off { display: none; }
+#gameContainer { border-color: #7a1022; box-shadow: 0 0 30px rgba(224, 36, 58, 0.35); }
+
+/* Menú: ahora es transparente (el fondo lo pone el escenario) */
+#menuUI { background: transparent; overflow: hidden; }
+#menuUI .menu-shell { display: none; }          /* el contenido antiguo se reubica en los paneles nuevos */
+#menuUI.th-intro #thMenu, #menuUI.th-intro #thFoot { opacity: 0; pointer-events: none; }
+
+#thMenu { position: absolute; inset: 0; z-index: 2; transition: opacity 0.9s ease; }
+#thFoot {
+    position: absolute; left: 0; right: 0; bottom: 6px; z-index: 3; text-align: center; pointer-events: none;
+    font-family: var(--th-serif); font-size: clamp(9px, 1.5vw, 12px); color: rgba(255, 235, 225, 0.75);
+    letter-spacing: 0.5px; text-shadow: 0 1px 3px #000, 0 0 6px #000; transition: opacity 0.9s ease;
+}
+#thSkip {
+    position: absolute; right: 14px; bottom: 12px; z-index: 6; font-family: var(--th-caps); font-size: 11px; letter-spacing: 3px;
+    color: rgba(255, 230, 220, 0.8); text-shadow: 0 0 6px #000; animation: thBlink 1.4s steps(2, end) infinite;
+    pointer-events: none; display: none;
+}
+#menuUI.th-intro #thSkip { display: block; }
+@keyframes thBlink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.25; } }
+
+/* ---------- Lista principal (Start / Practice Start / Score ...) ---------- */
+#thList {
+    position: absolute; right: 7%; top: 47%; margin: 0; padding: 0; list-style: none;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 0;
+}
+.th-item {
+    --i: 0; display: block; background: none; border: 0; outline: none; cursor: pointer; text-align: right;
+    font-family: var(--th-serif); font-weight: 900; font-size: clamp(17px, 3.1vw, 28px); line-height: 1.34;
+    letter-spacing: 1px; color: rgba(214, 196, 196, 0.52); padding: 0 2px;
+    text-shadow: 0 1px 0 #000, 0 0 3px #000, 0 2px 6px rgba(0, 0, 0, 0.9);
+    transform: translateX(calc(var(--i) * -7px)); transition: color 0.12s, transform 0.12s, text-shadow 0.12s, filter 0.12s;
+    animation: thItemIn 0.5s ease-out both; animation-delay: calc(0.12s * var(--i) + 0.2s);
+}
+@keyframes thItemIn { from { opacity: 0; translate: 40px 0; } to { opacity: 1; translate: 0 0; } }
+#menuUI.th-intro .th-item { animation: none; opacity: 0; }
+.th-item.sel {
+    color: #fff; transform: translateX(calc(var(--i) * -7px - 10px)) scale(1.06); transform-origin: right center;
+    text-shadow: 0 0 6px #fff, 0 0 16px var(--th-crimson), 0 0 30px var(--th-blood), 0 2px 6px #000;
+}
+.th-item.sel::before { content: '◆ '; color: var(--th-crimson); font-size: 0.6em; vertical-align: 0.2em; text-shadow: 0 0 8px #f33; }
+.th-item.locked { filter: saturate(0.2); }
+.th-item.locked::after { content: ' ✕'; font-size: 0.6em; color: #a33; }
+#thCaption {
+    margin-top: 12px; max-width: 340px; text-align: right; pointer-events: none;
+    font-family: 'VT323', monospace; font-size: clamp(15px, 2.4vw, 20px); color: #f3c9c0; text-shadow: 0 1px 2px #000, 0 0 8px #000; min-height: 2.4em; line-height: 1.05;
+}
+#thToast {
+    position: absolute; left: 50%; bottom: 9%; transform: translate(-50%, 10px); opacity: 0; z-index: 8; pointer-events: none;
+    font-family: var(--th-serif); font-weight: 700; font-size: clamp(11px, 2vw, 15px); color: #fff; background: rgba(40, 4, 10, 0.92);
+    border: 1px solid #c33; padding: 9px 16px; box-shadow: 0 0 20px rgba(224, 36, 58, 0.5); transition: opacity 0.25s, transform 0.25s; text-align: center; max-width: 88%;
+}
+#thToast.on { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- Paneles (Start / Practice / Score) ---------- */
+.th-panel {
+    position: absolute; right: 4%; top: 50%; transform: translateY(-50%); width: min(560px, 92%); max-height: 88%; overflow-y: auto; box-sizing: border-box;
+    padding: 16px 18px 18px; z-index: 4; color: var(--th-paper);
+    background: linear-gradient(180deg, rgba(48, 6, 14, 0.90), rgba(18, 2, 6, 0.93));
+    border: 1px solid rgba(255, 205, 160, 0.45); outline: 3px solid rgba(120, 10, 28, 0.55); outline-offset: 2px;
+    box-shadow: 0 14px 50px rgba(0, 0, 0, 0.8), inset 0 0 40px rgba(176, 18, 42, 0.18);
+    animation: thPanelIn 0.28s ease-out;
+}
+@keyframes thPanelIn { from { opacity: 0; transform: translateY(-46%); } to { opacity: 1; transform: translateY(-50%); } }
+.th-panel::-webkit-scrollbar { width: 6px; } .th-panel::-webkit-scrollbar-thumb { background: #b0122a; } .th-panel::-webkit-scrollbar-track { background: #140306; }
+.th-panel.hidden { display: none !important; }
+.th-ph { font-family: var(--th-serif); font-weight: 900; font-size: clamp(18px, 3vw, 24px); text-align: center; letter-spacing: 3px; color: #fff; margin: 0 0 2px; text-shadow: 0 0 10px var(--th-crimson); }
+.th-ps { font-family: 'VT323', monospace; font-size: 17px; text-align: center; color: #e2a9a2; margin-bottom: 10px; }
+.th-sec { font-family: var(--th-caps); font-weight: 800; font-size: 11px; letter-spacing: 3px; color: var(--th-gold); margin: 12px 0 6px; border-bottom: 1px solid rgba(255, 205, 160, 0.25); padding-bottom: 3px; }
+.th-sec::before { content: '◆ '; color: var(--th-crimson); }
+.th-back {
+    display: inline-block; margin-top: 12px; background: none; color: #e6c9c0; border: 1px solid rgba(255, 205, 160, 0.4); padding: 8px 14px; cursor: pointer;
+    font-family: var(--th-caps); font-weight: 800; font-size: 11px; letter-spacing: 2px;
+}
+.th-back:hover { background: rgba(224, 36, 58, 0.25); color: #fff; border-color: #fff; }
+.th-row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+.th-row > * { flex: 1 1 auto; }
+.th-go { flex: 1 1 100%; margin-top: 12px; }
+
+/* Piezas antiguas reubicadas: chips, naves, nombre, botón JUGAR... en versión escarlata */
+.th-panel .field-label { display: none; }
+.th-panel input[type="text"] {
+    background: rgba(12, 2, 5, 0.9); color: #ffe9de; border: 1px solid rgba(255, 205, 160, 0.4); border-radius: 0;
+    font-family: var(--th-serif); font-size: 13px; font-weight: 700; padding: 10px;
+}
+.th-panel input[type="text"]::placeholder { color: #8a5a5a; }
+.th-panel input[type="text"]:focus { border-color: #fff; box-shadow: 0 0 12px rgba(224, 36, 58, 0.7); }
+.th-panel .chip-group { gap: 5px; }
+.th-panel .chip {
+    border-radius: 0; background: rgba(12, 2, 5, 0.85); border: 1px solid rgba(255, 205, 160, 0.3); color: #cfa9a2;
+    font-family: var(--th-serif); font-weight: 900; font-size: 12px; letter-spacing: 1px; padding: 9px 4px;
+}
+.th-panel .chip small { font-family: 'VT323', monospace; font-weight: normal; font-size: 14px; opacity: 0.85; }
+.th-panel .chip:hover, .th-panel .chip:focus-visible { border-color: #fff; color: #fff; transform: none; }
+.th-panel .chip.active { background: linear-gradient(180deg, var(--th-crimson), var(--th-blood)); color: #fff; border-color: #ffd0c0; box-shadow: 0 0 14px rgba(224, 36, 58, 0.7); }
+.th-panel .chip[data-value="facil"] { --tone: #5fcf8a; } .th-panel .chip[data-value="medio"] { --tone: #6cc4ff; }
+.th-panel .chip[data-value="dificil"] { --tone: #ffa23a; } .th-panel .chip[data-value="lunatico"] { --tone: #ff3d5c; }
+.th-panel .chip[data-value="facil"].active { background: linear-gradient(180deg, #3aa764, #1f6c3e); }
+.th-panel .chip[data-value="medio"].active { background: linear-gradient(180deg, #3a8fd0, #1f5683); }
+.th-panel .chip[data-value="dificil"].active { background: linear-gradient(180deg, #e08a1f, #9a5408); }
+.th-panel .chip[data-value="lunatico"].active { background: linear-gradient(180deg, #ff3d5c, #8a0a22); }
+.th-panel #lunaticHint { font-family: 'VT323', monospace; font-size: 16px; color: #ff8a9c; margin-top: 6px; line-height: 1.1; }
+.th-panel .vertical-ships { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.th-panel .ship-btn {
+    border-radius: 0; background: rgba(12, 2, 5, 0.85); border: 1px solid rgba(255, 205, 160, 0.25); border-left: 3px solid #7a1022; color: #e6c9c0; padding: 6px 8px; gap: 8px; text-align: left;
+}
+.th-panel .ship-btn:hover, .th-panel .ship-btn:focus-visible { border-color: #fff; background: rgba(224, 36, 58, 0.18); transform: none; }
+.th-panel .ship-btn.active { background: linear-gradient(90deg, rgba(224, 36, 58, 0.9), rgba(120, 10, 28, 0.85)); color: #fff; border-color: #ffd0c0; box-shadow: 0 0 12px rgba(224, 36, 58, 0.6); transform: none; }
+.th-panel .ship-btn.active::after { color: #fff; content: '◀'; font-size: 8px; }
+.th-panel .ship-name { font-family: var(--th-serif); font-weight: 900; font-size: 11px; }
+.th-panel .ship-desc { font-family: 'VT323', monospace; font-size: 14px; opacity: 0.85; }
+.th-panel .ship-icon { width: 24px; height: 24px; }
+.th-panel .ship-btn.active .ship-icon { filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.6)); }
+.th-panel .pulse-btn {
+    background: linear-gradient(180deg, #ff4560, #a50f28); color: #fff; border: 2px solid #ffd0c0; border-radius: 0; width: 100%;
+    font-family: var(--th-serif); font-weight: 900; font-size: 18px; letter-spacing: 4px; padding: 13px 10px; box-shadow: 0 0 20px rgba(224, 36, 58, 0.55), inset 0 -4px 0 rgba(0, 0, 0, 0.3);
+    text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+.th-panel .pulse-btn::after { border-color: #ff6a80; border-radius: 0; }
+
+/* Lista de niveles del Modo Práctica */
+#thStages { display: none; flex-direction: column; gap: 4px; }
+.th-panel.practice #thStages { display: flex; }
+.th-panel.practice .th-modewrap { display: none; }
+.th-partnerwrap { display: none; }
+.th-panel.practice .th-partnerwrap { display: block; }
+.th-prow { display: flex; align-items: center; gap: 6px; }
+.th-pbtn { width: 38px; height: 34px; cursor: pointer; border: 1px solid rgba(255, 205, 160, 0.4); background: rgba(12, 2, 5, 0.85); color: #ffd98a; font-size: 20px; font-weight: 900; outline: none; }
+.th-pbtn:hover { background: rgba(224, 36, 58, 0.35); border-color: #fff; }
+.th-pinput { width: 90px; height: 34px; text-align: center; font-family: var(--th-caps); font-weight: 800; font-size: 16px; color: #fff; background: rgba(12, 2, 5, 0.9); border: 1px solid rgba(255, 205, 160, 0.4); outline: none; }
+.th-stage {
+    display: flex; align-items: center; gap: 10px; text-align: left; cursor: pointer; padding: 7px 10px; border: 1px solid rgba(255, 205, 160, 0.25); border-left: 3px solid #7a1022;
+    background: rgba(12, 2, 5, 0.85); color: #e6c9c0; font-family: var(--th-serif); font-weight: 900; font-size: 12px; outline: none;
+}
+.th-stage b { font-family: var(--th-caps); color: var(--th-gold); font-size: 11px; letter-spacing: 2px; min-width: 62px; }
+.th-stage span { flex: 1; } .th-stage small { font-family: 'VT323', monospace; font-weight: normal; font-size: 14px; color: #c99; }
+.th-stage:hover { border-color: #fff; background: rgba(224, 36, 58, 0.18); }
+.th-stage.sel { background: linear-gradient(90deg, rgba(224, 36, 58, 0.9), rgba(120, 10, 28, 0.85)); color: #fff; border-color: #ffd0c0; box-shadow: 0 0 12px rgba(224, 36, 58, 0.55); }
+.th-stage.sel b { color: #fff; }
+.th-stage.locked { opacity: 0.5; filter: grayscale(0.7); }
+.th-stage.lunatic b { color: #ff7a90; }
+.th-stage.shake { animation: lockShake 0.4s; }
+
+/* Score: ranking + misiones */
+.th-panel #leaderboard {
+    max-height: 210px; margin: 0; background: rgba(8, 1, 3, 0.7); border: 1px solid rgba(255, 205, 160, 0.3); border-radius: 0; font-family: 'VT323', monospace; font-size: 17px; padding: 8px 10px;
+}
+.th-panel #leaderboard h3 { font-family: var(--th-caps); font-size: 12px; color: var(--th-gold); }
+.th-panel #leaderboard::-webkit-scrollbar-thumb { background: #b0122a; }
+.th-panel .score-entry { border-bottom: 1px dashed rgba(255, 205, 160, 0.2); color: #f0d6cc; padding: 3px 0; }
+.th-panel #missionsBox { margin-top: 10px; border: 1px solid rgba(255, 205, 160, 0.3); border-radius: 0; background: rgba(8, 1, 3, 0.7); }
+.th-panel .mi-head { color: var(--th-gold); font-family: var(--th-caps); font-size: 11px; }
+.th-panel .mi-count, .th-panel .mi-foot { color: #ffd98a; }
+
+/* Opciones y Tienda con la paleta escarlata */
+.options-box { background: #190409 !important; border: 2px solid #c8283c !important; border-radius: 0 !important; box-shadow: 0 0 30px rgba(224, 36, 58, 0.45) !important; font-family: var(--th-serif); }
+.options-box h2 { color: #fff !important; font-family: var(--th-serif); text-shadow: 0 0 10px #e0243a; }
+.options-group { color: var(--th-gold) !important; font-family: var(--th-caps); border-bottom-color: rgba(255, 205, 160, 0.3) !important; }
+.options-row input[type="checkbox"]:checked { background: rgba(224, 36, 58, 0.35) !important; border-color: #ff6a80 !important; }
+.options-row input[type="checkbox"]:checked::after { background: #ff6a80 !important; }
+.fullscreen-btn { color: #ffd0c0 !important; border-color: #c8283c !important; border-radius: 0 !important; }
+.fullscreen-btn:hover { background: #c8283c !important; color: #fff !important; }
+.btn-secondary { border-radius: 0; }
+
+/* Pantalla de salida */
+#thQuit { position: absolute; inset: 0; z-index: 20; background: #000; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; opacity: 0; transition: opacity 0.8s; }
+#thQuit.on { display: flex; } #thQuit.vis { opacity: 1; }
+#thQuit h2 { font-family: var(--th-serif); font-weight: 900; font-size: clamp(20px, 4vw, 34px); color: #fff; letter-spacing: 6px; text-shadow: 0 0 16px #e0243a; margin: 0; }
+#thQuit p { font-family: var(--th-caps); font-size: 11px; letter-spacing: 3px; color: #e2a9a2; margin: 0; animation: thBlink 1.4s steps(2, end) infinite; }
+
+/* ---------- Pantallas angostas (teléfono) ---------- */
+@media (max-width: 720px) {
+    #thList { right: 50%; transform: translateX(50%); top: auto; bottom: 11%; align-items: center; }
+    .th-item { text-align: center; transform: none !important; animation: thItemInM 0.5s ease-out both; animation-delay: calc(0.1s * var(--i) + 0.2s); }
+    .th-item.sel { transform: scale(1.08) !important; transform-origin: center; }
+    @keyframes thItemInM { from { opacity: 0; } to { opacity: 1; } }
+    #thCaption { text-align: center; max-width: 90vw; }
+    #thFoot { display: none; }
+    .th-panel { right: 50%; transform: translate(50%, -50%); animation: none; }
+    .th-panel .vertical-ships { grid-template-columns: 1fr; }
+}
+@media (max-height: 520px) {
+    .th-item { font-size: clamp(13px, 4vh, 20px); line-height: 1.22; }
+    #thCaption { display: none; } #thFoot { display: none; }
+}
+
+/* ============================================================================
+   REDISEÑO: Comenzar/Práctica (hangar), Puntajes (podio) y Opciones (pestañas)
+   ============================================================================ */
+.th-tabs { display: flex; gap: 6px; margin: 4px 0 12px; border-bottom: 1px solid rgba(255, 205, 160, 0.25); }
+.th-tab {
+    flex: 1; background: rgba(12, 2, 5, 0.6); color: #cfa9a2; border: 1px solid rgba(255, 205, 160, 0.2); border-bottom: 0; padding: 9px 6px 8px; cursor: pointer;
+    font-family: var(--th-caps); font-weight: 800; font-size: 11px; letter-spacing: 2px; position: relative; top: 1px;
+}
+.th-tab span { color: var(--th-crimson); margin-right: 4px; }
+.th-tab:hover { color: #fff; background: rgba(224, 36, 58, 0.18); }
+.th-tab.on { color: #fff; background: linear-gradient(180deg, rgba(224, 36, 58, 0.55), rgba(70, 8, 18, 0.9)); border-color: rgba(255, 205, 160, 0.6); box-shadow: 0 -2px 12px rgba(224, 36, 58, 0.35); }
+
+/* --- Comenzar / Práctica: dos columnas --- */
+#thSetup { width: min(880px, 96%); }
+.th-cols { display: grid; grid-template-columns: 0.92fr 1.08fr; gap: 20px; }
+.th-col { min-width: 0; }
+.th-col .th-sec:first-child { margin-top: 0; }
+.th-hangar { position: relative; padding: 10px 10px 12px; border: 1px solid rgba(255, 205, 160, 0.35); background: radial-gradient(ellipse at 50% 30%, rgba(176, 18, 42, 0.45), rgba(14, 1, 4, 0.92) 70%); box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.6); }
+.hg-view { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.hg-arrow {
+    width: 34px; height: 54px; flex: none; background: rgba(12, 2, 5, 0.7); color: #ffd0c0; border: 1px solid rgba(255, 205, 160, 0.4); cursor: pointer; font-size: 14px;
+    clip-path: polygon(0 8px, 8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
+}
+.hg-arrow:hover { background: var(--th-crimson); color: #fff; }
+.hg-stage { position: relative; width: 168px; height: 168px; flex: none; display: flex; align-items: center; justify-content: center; }
+.hg-ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid rgba(255, 214, 190, 0.7); box-shadow: 0 0 14px rgba(255, 60, 80, 0.55), inset 0 0 14px rgba(255, 60, 80, 0.3); }
+.hg-ring.r1 { border-style: dashed; animation: hgSpin 24s linear infinite; }
+.hg-ring.r2 { inset: 16px; border-width: 2px; border-color: rgba(224, 36, 58, 0.75); border-top-color: transparent; border-bottom-color: transparent; animation: hgSpin 9s linear infinite reverse; }
+.hg-glow { position: absolute; inset: 30px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 90, 110, 0.45), transparent 70%); }
+@keyframes hgSpin { to { transform: rotate(360deg); } }
+.hg-ship { position: relative; width: 96px !important; height: 96px !important; filter: drop-shadow(0 0 12px rgba(255, 70, 90, 0.85)) !important; animation: hgFloat 3s ease-in-out infinite; }
+@keyframes hgFloat { 0%, 100% { transform: translateY(3px); } 50% { transform: translateY(-5px); } }
+.hg-ship.hg-locked { background: #3a2a30 !important; filter: grayscale(1) brightness(0.7) !important; }
+.hg-q { display: none; position: absolute; font-family: var(--th-serif); font-size: 44px; color: rgba(255, 220, 210, 0.85); text-shadow: 0 0 12px #e0243a; }
+.is-locked .hg-q { display: block; }
+.hg-name { text-align: center; margin-top: 8px; font-family: var(--th-serif); font-weight: 900; font-size: 18px; color: #fff; text-shadow: 0 0 10px var(--th-crimson); }
+.hg-desc { text-align: center; font-family: 'VT323', monospace; font-size: 17px; line-height: 1.05; color: #f0c8c0; min-height: 36px; margin: 2px 4px 6px; }
+.hg-state { text-align: center; font-family: var(--th-caps); font-weight: 800; font-size: 10px; letter-spacing: 1px; min-height: 14px; margin-bottom: 6px; color: #ffb4a8; }
+.hg-state.ok { color: #9dffb0; } .hg-state.lock { color: #ff8a9c; }
+.hg-stat { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 6px; font-family: var(--th-caps); font-weight: 800; font-size: 9px; letter-spacing: 2px; color: var(--th-gold); }
+.hg-pips { display: flex; gap: 3px; }
+.hg-pips i { width: 22px; height: 8px; background: rgba(255, 255, 255, 0.1); transform: skewX(-20deg); border: 1px solid rgba(255, 205, 160, 0.25); }
+.hg-pips i.on { background: linear-gradient(180deg, #ff6a80, #b0122a); border-color: #ffd0c0; box-shadow: 0 0 6px rgba(255, 60, 80, 0.7); }
+/* miniaturas */
+.th-panel .vertical-ships { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; margin-top: 8px; }
+.th-panel .vertical-ships.has-goku { grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.th-panel .ship-btn { position: relative; padding: 8px 0; justify-content: center; border-left: 1px solid rgba(255, 205, 160, 0.25); animation: none; opacity: 1; aspect-ratio: 1; }
+.th-panel .ship-btn .ship-info { display: none; }
+.th-panel .ship-btn .ship-icon { width: 26px; height: 26px; }
+.th-panel .ship-btn::before { content: attr(data-ship); position: absolute; top: 2px; left: 4px; font-family: var(--th-caps); font-weight: 800; font-size: 9px; color: rgba(255, 220, 210, 0.7); }
+.th-panel .ship-btn.prev { border-color: #fff; box-shadow: 0 0 10px rgba(255, 255, 255, 0.35); }
+.th-panel .ship-btn.active::after { content: '✔'; position: absolute; right: 3px; bottom: 1px; font-size: 10px; color: #fff; }
+.th-panel .ship-btn.locked { opacity: 0.6; }
+.th-panel .ship-btn.locked::after { content: '🔒'; position: absolute; right: 2px; bottom: 1px; font-size: 10px; }
+.th-panel .ship-btn:hover { transform: translateY(-2px); }
+
+/* --- Puntajes --- */
+#thScore { width: min(720px, 96%); }
+.sb-empty { text-align: center; padding: 40px 10px; font-family: var(--th-serif); font-weight: 700; font-size: 15px; color: #f0c8c0; line-height: 1.6; }
+.sb-empty small { font-family: 'VT323', monospace; font-weight: normal; font-size: 17px; color: #b88; }
+.sb-podium { display: grid; grid-template-columns: 1fr 1.12fr 1fr; gap: 10px; align-items: end; margin-bottom: 12px; min-height: 190px; }
+.sb-pod { --c: #c9a45a; position: relative; text-align: center; padding: 26px 6px 0; border: 1px solid var(--c); border-bottom: 0; background: linear-gradient(180deg, rgba(60, 8, 16, 0.9), rgba(14, 1, 4, 0.95)); animation: sbUp 0.6s cubic-bezier(.2, .9, .3, 1) both; animation-delay: var(--d); box-shadow: 0 0 18px color-mix(in srgb, var(--c) 40%, transparent); }
+.sb-pod.p1 { --c: #ffd84a; padding-bottom: 6px; } .sb-pod.p2 { --c: #dfe8f0; } .sb-pod.p3 { --c: #e9955a; }
+.sb-pod.p1 { min-height: 190px; } .sb-pod.p2 { min-height: 160px; } .sb-pod.p3 { min-height: 140px; }
+@keyframes sbUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+.sb-medal { position: absolute; left: 50%; top: -18px; transform: translateX(-50%); width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--th-serif); font-weight: 900; font-size: 19px; color: #2a0610; background: radial-gradient(circle at 35% 30%, #fff, var(--c) 60%, #7a5a10); border: 2px solid #fff3; box-shadow: 0 0 14px var(--c); }
+.sb-name { font-family: var(--th-serif); font-weight: 900; font-size: 14px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
+.sb-pod.p1 .sb-name { font-size: 16px; color: #ffe9a0; text-shadow: 0 0 8px #fa0; }
+.sb-star { color: #ffd84a; font-style: normal; text-shadow: 0 0 6px #fa0; }
+.sb-diff { display: inline-block; font-style: normal; font-family: var(--th-caps); font-weight: 800; font-size: 8px; letter-spacing: 1px; color: #fff; background: color-mix(in srgb, var(--c) 65%, #000); border: 1px solid var(--c); padding: 1px 6px; margin: 4px 0; }
+.sb-score { font-family: 'VT323', monospace; font-size: 22px; color: #fff4ea; letter-spacing: 1px; }
+.sb-base { margin-top: 6px; padding: 3px 0; font-family: var(--th-caps); font-weight: 800; font-size: 12px; color: #2a0610; background: var(--c); }
+.sb-list { display: flex; flex-direction: column; gap: 3px; }
+.sb-row { display: grid; grid-template-columns: 30px 1fr auto auto; align-items: center; gap: 8px; padding: 5px 10px; background: linear-gradient(90deg, rgba(60, 8, 16, 0.7), rgba(14, 1, 4, 0.7)); border-left: 3px solid #7a1022; animation: sbRow 0.4s ease-out both; animation-delay: var(--d); }
+.sb-row:hover { background: rgba(224, 36, 58, 0.2); border-left-color: #fff; }
+@keyframes sbRow { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: none; } }
+.sb-rank { font-family: var(--th-caps); font-size: 13px; color: var(--th-gold); }
+.sb-row .sb-name { font-size: 13px; text-align: left; }
+.sb-row .sb-score { font-size: 20px; min-width: 100px; text-align: right; }
+.sb-row .sb-diff { margin: 0; }
+/* misiones */
+#thMisPane #missionsBox { margin: 0; background: none; border: 0; padding: 0; }
+.th-panel .mi-row { background: linear-gradient(90deg, rgba(60, 8, 16, 0.75), rgba(14, 1, 4, 0.75)); border: 1px solid rgba(255, 205, 160, 0.2); border-left: 3px solid var(--tone); padding: 8px 10px; margin-bottom: 6px; }
+.th-panel .mi-text { font-size: 19px; }
+.th-panel .mi-foot { background: rgba(8, 1, 3, 0.7); border: 1px solid rgba(255, 205, 160, 0.25); padding: 6px 10px; font-size: 18px; }
+
+/* --- Opciones --- */
+.options-box { width: min(500px, 100%) !important; padding: 18px 18px 16px !important; gap: 0 !important; background: linear-gradient(180deg, #2a0710, #12030a) !important; outline: 3px solid rgba(120, 10, 28, 0.55); outline-offset: 2px; }
+.op-title { text-align: center; font-family: var(--th-serif); font-weight: 900; font-size: 24px; letter-spacing: 6px; color: #fff; margin: 0; text-shadow: 0 0 12px #e0243a; }
+.op-sub { text-align: center; font-family: 'VT323', monospace; font-size: 18px; color: #e2a9a2; margin: 0 0 10px; }
+.op-panes { overflow-y: auto; max-height: min(52vh, 420px); padding-right: 4px; }
+.op-panes::-webkit-scrollbar { width: 6px; } .op-panes::-webkit-scrollbar-thumb { background: #b0122a; }
+.op-pane { display: flex; flex-direction: column; gap: 6px; animation: thPanelFade 0.2s ease-out; }
+@keyframes thPanelFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.op-card { position: relative; display: grid !important; grid-template-columns: 34px 1fr auto; grid-template-areas: "ico lab ctl" "ico desc ctl"; column-gap: 12px; align-items: center !important; padding: 9px 12px; background: linear-gradient(90deg, rgba(60, 8, 16, 0.75), rgba(14, 1, 4, 0.75)); border: 1px solid rgba(255, 205, 160, 0.2); border-left: 3px solid #7a1022; }
+.op-card:hover { border-left-color: var(--th-crimson); background: linear-gradient(90deg, rgba(90, 12, 26, 0.8), rgba(20, 2, 6, 0.8)); }
+.op-ico { grid-area: ico; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #ffd0c0; background: rgba(224, 36, 58, 0.25); border: 1px solid rgba(255, 205, 160, 0.4); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.op-card label { grid-area: lab / lab / lab / ctl; display: flex !important; flex-direction: row-reverse; width: auto !important; font-family: var(--th-serif); font-weight: 900; font-size: 13px !important; color: #fff; align-items: center; justify-content: space-between; gap: 10px; }
+.op-card label input[type="checkbox"] { grid-area: ctl; }
+.op-desc, .op-lt small { grid-area: desc; font-family: 'VT323', monospace; font-weight: normal; font-size: 16px; line-height: 1; color: #d4a8a0; margin-top: 2px; }
+.op-card .op-desc { grid-column: 2 / 4; }
+.op-card:has(input[type="checkbox"]) label { grid-column: 2 / 4; grid-row: 1; }
+.op-card:has(input[type="checkbox"]) .op-desc { grid-column: 2 / 3; grid-row: 2; max-width: calc(100% - 50px); }
+.op-lives { grid-template-areas: "ico lab ctl"; }
+.op-lt { grid-column: 2; display: flex; flex-direction: column; }
+.op-lt b { font-family: var(--th-serif); font-weight: 900; font-size: 13px; color: #fff; }
+.op-step { grid-column: 3; display: flex; align-items: center; gap: 4px; }
+.op-step button { width: 28px; height: 28px; background: rgba(224, 36, 58, 0.3); color: #fff; border: 1px solid rgba(255, 205, 160, 0.5); cursor: pointer; font-size: 16px; font-family: var(--th-serif); }
+.op-step button:hover { background: var(--th-crimson); }
+.op-step input[type="number"] { width: 48px !important; text-align: center; background: rgba(8, 1, 3, 0.9); color: #fff; border: 1px solid rgba(255, 205, 160, 0.4); border-radius: 0; font-family: var(--th-serif); font-weight: 900; font-size: 14px; padding: 5px 0; -moz-appearance: textfield; }
+.op-step input::-webkit-outer-spin-button, .op-step input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.op-card select { background: rgba(8, 1, 3, 0.9); color: #fff; border: 1px solid rgba(255, 205, 160, 0.5); border-radius: 0; font-family: var(--th-serif); font-weight: 900; font-size: 12px; padding: 5px 8px; }
+.op-card input[type="range"] { -webkit-appearance: none; appearance: none; width: 130px; height: 6px; background: linear-gradient(90deg, #b0122a, #ff6a80); border: 1px solid rgba(255, 205, 160, 0.5); outline: none; }
+.op-card input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #fff; border: 2px solid #e0243a; transform: rotate(45deg); cursor: pointer; }
+.op-card input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; background: #fff; border: 2px solid #e0243a; border-radius: 0; cursor: pointer; }
+.op-info { background: rgba(8, 1, 3, 0.5) !important; border-left-color: #444 !important; padding: 6px 12px; display: block !important; }
+.op-info span { font-family: 'VT323', monospace; font-size: 17px !important; color: #c99 !important; }
+.op-note { font-family: 'VT323', monospace; font-size: 16px; color: #b88; text-align: center; margin-top: 4px; }
+.op-pane .fullscreen-btn { margin-top: 4px; font-family: var(--th-caps); font-weight: 800; letter-spacing: 2px; font-size: 11px; padding: 12px; }
+.op-close { align-self: flex-start; margin-top: 12px; }
+
+@media (max-width: 760px) {
+    .th-cols { grid-template-columns: 1fr; }
+    .hg-stage { width: 140px; height: 140px; } .hg-ship { width: 78px !important; height: 78px !important; }
+    .sb-podium { gap: 5px; } .sb-score { font-size: 17px; } .sb-name { font-size: 12px; }
+    .sb-row { grid-template-columns: 24px 1fr auto; } .sb-row .sb-diff { display: none; }
+}
+.sb-pod { display: flex; flex-direction: column; align-items: stretch; }
+.sb-pod .sb-base { margin-top: auto; }
+.sb-pod .sb-score { margin-bottom: 8px; }
+.th-modewrap { margin-top: 4px; }
+.options-box .op-title { font-size: 24px; letter-spacing: 6px; margin: 0; }
+
+#thFlash { position: absolute; inset: 0; z-index: 7; pointer-events: none; opacity: 0; background: radial-gradient(circle at 50% 50%, #fff 0%, rgba(255, 120, 140, 0.8) 40%, rgba(176, 18, 42, 0.4) 100%); }
+#thFlash.go { animation: thFlash 0.9s ease-out; }
+@keyframes thFlash { 0% { opacity: 0.95; } 100% { opacity: 0; } }
+#thToast { z-index: 9; }
+
+    </style>
+</head>
+<body>
+
+<div id="gameContainer">
+    <canvas id="thStage" aria-hidden="true"></canvas>
+    <div id="menuUI">
+      <div class="menu-shell">
+        <div class="logo">
+            <h1 class="glitch-text" data-text="SPACE GAME">SPACE GAME</h1>
+            <div class="logo-sub">スペースゲーム</div>
+            <div class="logo-tag">▸ SHOOT 'EM UP ◂</div>
+        </div>
+        <div class="menu-layout">
+            <div class="left-panel">
+                <h3 class="panel-title">ELIGE TU NAVE<br><span>(Moderno e Infinito)</span></h3>
+                <div id="shipSelection" class="vertical-ships">
+                    <button class="ship-btn active" data-ship="1">
+                        <div class="ship-icon ship1"></div>
+                        <div class="ship-info"><span class="ship-name">1. Tanque</span><span class="ship-desc">(Blindaje: aguanta 1 golpe)</span></div>
+                    </button>
+                    <button class="ship-btn" data-ship="2">
+                        <div class="ship-icon ship2"></div>
+                        <div class="ship-info"><span class="ship-name">2. Sniper</span><span class="ship-desc">(Carga perforante + mira)</span></div>
+                    </button>
+                    <button class="ship-btn" data-ship="3">
+                        <div class="ship-icon ship3"></div>
+                        <div class="ship-info"><span class="ship-name">3. Ligera</span><span class="ship-desc">(Veloz · graze x2)</span></div>
+                    </button>
+                    <button class="ship-btn" data-ship="4">
+                        <div class="ship-icon ship4"></div>
+                        <div class="ship-info"><span class="ship-name">4. Omega</span><span class="ship-desc">(Plasma: borra balas)</span></div>
+                    </button>
+                    <button class="ship-btn locked" data-ship="5">
+                        <div class="ship-icon ship5"></div>
+                        <div class="ship-info"><span class="ship-name">5. ???</span><span class="ship-desc">(0/6 monedas gigantes)</span></div>
+                    </button>
+                    <button class="ship-btn locked" data-ship="6">
+                        <div class="ship-icon ship6"></div>
+                        <div class="ship-info"><span class="ship-name">6. ???</span><span class="ship-desc">(0/7 monedas gigantes)</span></div>
+                    </button>
+                    <button class="ship-btn goku-hidden" data-ship="7">
+                        <div class="ship-icon ship7"></div>
+                        <div class="ship-info"><span class="ship-name">7. Goku</span><span class="ship-desc">(Ki · Kamehameha)</span></div>
+                    </button>
+                </div>
+            </div>
+            <div class="right-panel">
+                <div class="field-label">MODO</div>
+                <div class="chip-group cols-2" data-for="gameMode">
+                    <button type="button" class="chip active" data-value="moderno">MODERNO<small>Oleadas</small></button>
+                    <button type="button" class="chip" data-value="infinito">INFINITO<small>Survival</small></button>
+                </div>
+                <select id="gameMode" class="native-select" tabindex="-1" aria-hidden="true">
+                    <option value="moderno" selected>Modo Moderno (Oleadas)</option>
+                    <option value="infinito">Modo Infinito (Survival)</option>
+                </select>
+
+                <div class="field-label">DIFICULTAD</div>
+                <div class="chip-group cols-2" data-for="difficulty">
+                    <button type="button" class="chip" data-value="facil">FÁCIL</button>
+                    <button type="button" class="chip active" data-value="medio">MEDIO</button>
+                    <button type="button" class="chip" data-value="dificil">DIFÍCIL</button>
+                    <button type="button" class="chip" data-value="lunatico">LUNÁTICO 🔴</button>
+                </div>
+                <select id="difficulty" class="native-select" tabindex="-1" aria-hidden="true">
+                    <option value="facil">Fácil</option>
+                    <option value="medio" selected>Medio</option>
+                    <option value="dificil">Difícil</option>
+                    <option value="lunatico">Lunático 🔴</option>
+                </select>
+                <div id="lunaticHint">
+                    Desbloquea la Fase 7 exclusiva: "Luna Sangrante"
+                </div>
+
+                <div class="btn-row">
+                    <button id="btnOptionsToggle" class="btn-secondary">⚙ OPCIONES</button>
+                    <button id="playBtn" class="pulse-btn">▶ JUGAR</button>
+                </div>
+
+                <div id="missionsBox"></div>
+
+                <div id="leaderboard">
+                    <h3>★ TOP 10 MEJORES ★</h3>
+                    <div id="scoreList">Cargando puntajes...</div>
+                </div>
+            </div>
+        </div>
+        <div class="controls-hint"><b>←↑↓→</b> Mover &nbsp; <b>ESPACIO</b> Disparar &nbsp; <b>Z</b> Bomba</div>
+      </div>
+    </div>
+
+    <div id="optionsModal" class="hidden">
+        <div class="options-box">
+            <h2>CONFIGURACIÓN</h2>
+
+            <div class="options-group">JUEGO</div>
+            <div class="options-row lock-run">
+                <label>Vidas Iniciales:</label>
+                <input type="number" id="optLives" value="5" min="1" max="10">
+            </div>
+
+            <div class="options-group">PANTALLA</div>
+            <div class="options-row">
+                <label><input type="checkbox" id="optCRT" checked> Efecto CRT retro</label>
+            </div>
+            <div class="options-row lock-run">
+                <label><input type="checkbox" id="optWidescreen"> HUD Compacto</label>
+            </div>
+            <div class="options-row lock-run">
+                <label id="verticalModeLabel"><input type="checkbox" id="optVerticalMode"> Modo Vertical (estilo Touhou, solo PC)</label>
+            </div>
+
+            <div class="options-group">SONIDO</div>
+            <div class="options-row"><label>Volumen música <input type="range" id="optMusicVol" min="0" max="100" value="50"></label></div>
+            <div class="options-row run-note" style="justify-content: flex-start;"><span id="runNote" style="font-size: 10px; color: #f90; line-height: 1.6;">En partida no se pueden cambiar: vidas, HUD compacto, modo vertical ni modo teléfono. Se cambian desde el menú principal.</span></div>
+
+            <div class="options-group">DISPOSITIVO</div>
+            <div class="options-row lock-run">
+                <label><input type="checkbox" id="optMobile"> Activar Modo Teléfono</label>
+            </div>
+            <div class="options-group">CONTROLES TÁCTILES</div>
+            <div class="options-row"><label><input type="checkbox" id="optTouchFloat" checked> Joystick flotante (aparece donde apoyes el pulgar)</label></div>
+            <div class="options-row"><label><input type="checkbox" id="optTouchLefty"> Modo zurdo (joystick a la derecha)</label></div>
+            <div class="options-row"><label><input type="checkbox" id="optTouchAuto"> Disparo automático (AUTO)</label></div>
+            <div class="options-row"><label><input type="checkbox" id="optTouchVibe" checked> Vibración</label></div>
+            <div class="options-row"><label>Tamaño <select id="optTouchSize"><option value="0.85">Pequeño</option><option value="1" selected>Normal</option><option value="1.25">Grande</option></select></label></div>
+            <div class="options-row"><label>Transparencia <input type="range" id="optTouchOpacity" min="30" max="100" value="70"></label></div>
+            <div class="options-row">
+                <label><input type="checkbox" id="optPerformance"> Modo Rendimiento (gama baja)</label>
+            </div>
+            <div class="options-row" style="justify-content: flex-start;">
+                <span id="deviceDetectedLabel" style="font-size: 7px; color: #888;"></span>
+            </div>
+            <div class="options-row" style="justify-content: flex-start;">
+                <span id="perfDetectedLabel" style="font-size: 7px; color: #888;"></span>
+            </div>
+            <button id="btnFullscreen" class="fullscreen-btn">PANTALLA COMPLETA (MANUAL)</button>
+            <span style="font-size: 7px; color: #888; text-align:center;">* La pantalla completa se activa sola al presionar JUGAR.</span>
+            <button id="btnCloseOptions" class="btn-secondary" style="width: 100%;">Cerrar Opciones</button>
+        </div>
+    </div>
+
+    <div id="mobileControls" class="hidden">
+        <div id="joyCatch"></div>
+        <div id="joystickZone"><div id="joystickBase"><div id="joystickStick"></div></div></div>
+        <button id="btnPause" aria-label="Pausa">❚❚</button>
+        <button id="btnRetroExit" aria-label="Salir del portal">SALIR</button>
+        <div id="mcRight">
+            <button id="btnAuto" aria-label="Disparo automático">AUTO</button>
+            <div class="action-buttons">
+                <div class="action-btn" id="btnFocus"><b>SLOW</b><i>PRECISO</i></div>
+                <div class="action-btn" id="btnBomb"><b>B</b><i>BOMBA</i></div>
+                <div class="action-btn" id="btnShoot"><b>A</b><i>DISPARO</i></div>
+            </div>
+        </div>
+    </div>
+    <div id="pauseOverlay" class="hidden">
+        <h2>PAUSA</h2>
+        <button id="btnResume">CONTINUAR</button>
+        <button id="btnPauseSettings">AJUSTES</button>
+        <button id="btnQuitToMenu">SALIR AL MENÚ</button>
+        <div class="hint">Se pausa sola si cambias de app. En PC: P o Esc.</div>
+    </div>
+
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <!-- Capa del efecto CRT (por encima de todo, sin capturar clics) -->
+    <div id="crtOverlay" aria-hidden="true"></div>
+</div>
+<script src="juego.js"></script>
+<script src="perfil.js"></script>
+<script src="invasor.js"></script>
+<script src="choque.js"></script>
+<script>
+    // Botones de Modo y Dificultad: son una cara nueva para los <select> originales.
+    // Al pulsar uno se actualiza el select y se dispara su evento "change" (el juego lee ese valor).
+    document.querySelectorAll('.chip-group').forEach(function (group) {
+        var sel = document.getElementById(group.getAttribute('data-for'));
+        if (!sel) return;
+        var chips = Array.prototype.slice.call(group.querySelectorAll('.chip'));
+        function sync() { chips.forEach(function (c) { c.classList.toggle('active', c.getAttribute('data-value') === sel.value); }); }
+        chips.forEach(function (c) {
+            c.addEventListener('click', function () {
+                sel.value = c.getAttribute('data-value');
+                sel.dispatchEvent(new Event('change'));
+                sync();
+            });
+        });
+        sync();
+    });
+</script>
+</body>
+</html>

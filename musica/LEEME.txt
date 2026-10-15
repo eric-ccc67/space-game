@@ -1,0 +1,26 @@
+CARPETA DE MÚSICA DEL JUEGO
+===========================
+Pon aquí tus archivos .mp3 con EXACTAMENTE estos nombres (todo en minúsculas, sin espacios).
+Los que no pongas no dan error: el juego usa la música de respaldo.
+
+OLEADAS DE ENEMIGOS Y MINI JEFES (nivel 1 a 7) - LA MISMA PISTA
+  nivel1_oleada.mp3   nivel2_oleada.mp3   nivel3_oleada.mp3   nivel4_oleada.mp3
+  nivel5_oleada.mp3   nivel6_oleada.mp3   nivel7_oleada.mp3
+  (el mini jefe ya NO tiene pista propia: sigue sonando la de oleada del nivel)
+
+JEFES DE NIVEL (nivel 1 a 7)
+  nivel1_jefe.mp3 ... nivel7_jefe.mp3
+
+MODO RETRO (portales de 8 bits) - UN SOLO ARCHIVO
+  retro.mp3
+  (si no existe, se mantiene la música de 8 bits generada por el juego)
+
+MENÚ DEL JUEGO - UN SOLO ARCHIVO
+  menu.mp3
+  (si no existe, se mantiene la música de ambiente generada por el juego)
+
+RESPALDOS (las de siempre; no los borres)
+  por_defecto_oleada.mp3   por_defecto_jefe.mp3
+
+Las pistas se repiten en bucle. El volumen se cambia en Ajustes (barra de música).
+Consejo: mp3 de ~128 kbps para que carguen rápido.
