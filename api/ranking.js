@@ -64,9 +64,9 @@ async function guardarPartida(db, r) {
   const detalleOk = detalle.length > 2000 ? '{}' : detalle;
   const victoria = r.victory ? 1 : 0;
 
-  await db.query('INSERT INTO scores (player_name, score, difficulty) VALUES ($1,$2,$3)', [r.name, r.score, r.difficulty]);
+  await db.query('INSERT INTO scores (player_name, score, difficulty) VALUES ($1::text,$2::int,$3::text)', [r.name, r.score, r.difficulty]);
 
-  const prev = await db.query('SELECT best_score FROM players WHERE player_key = $1', [key]);
+  const prev = await db.query('SELECT best_score FROM players WHERE player_key = $1::text', [key]);
   const isNewBest = prev.rows.length === 0 || r.score > prev.rows[0].best_score;
 
   const up = await db.query(
@@ -74,7 +74,8 @@ async function guardarPartida(db, r) {
        (player_key, player_name, best_score, best_difficulty, best_mode, best_level, best_victory, best_items,
         best_powerups, best_coins, best_gems, best_kills, best_bombs, best_graze, best_power_lvl, best_detail,
         last_score, games_played, victories, total_items, total_powerups, total_kills, max_coins, gems)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$3,1,$7,$8,$9,$12,$10,$11)
+     VALUES ($1::text,$2::text,$3::int,$4::text,$5::text,$6::int,$7::int,$8::int,$9::int,$10::int,$11::int,$12::int,$13::int,$14::int,$15::int,$16::text,
+             $3::int,1,$7::int,$8::int,$9::int,$12::int,$10::int,$11::int)
      ON CONFLICT (player_key) DO UPDATE SET
        last_score      = EXCLUDED.last_score,
        games_played    = players.games_played + 1,
@@ -107,7 +108,7 @@ async function guardarPartida(db, r) {
      r.kills, r.bombs, r.graze, r.powerLevel, detalleOk]
   );
   const best = up.rows[0].best_score;
-  const rk = await db.query('SELECT COUNT(*)::int + 1 AS rank FROM players WHERE best_score > $1', [best]);
+  const rk = await db.query('SELECT COUNT(*)::int + 1 AS rank FROM players WHERE best_score > $1::int', [best]);
   return { isNewBest, best, rank: rk.rows[0].rank };
 }
 
@@ -185,7 +186,7 @@ function crearHandler(getDb) {
         const name = limpiarNombre(body && body.name);
         if (!name) return send(400, { error: 'Datos incompletos' });
         await db.query(
-          `INSERT INTO players (player_key, player_name, stars) VALUES ($1,$2,1)
+          `INSERT INTO players (player_key, player_name, stars) VALUES ($1::text,$2::text,1)
            ON CONFLICT (player_key) DO UPDATE SET stars = 1`, [name.toLowerCase(), name]);
         return send(200, { success: true });
       }
