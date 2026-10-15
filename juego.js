@@ -397,7 +397,11 @@ function updateMusicState() {
     }
     const n = currentLevelIndex() + 1;
     let files;
-    if (activeBoss && activeBoss.state !== 'dead') {
+    // Jefe secreto EL INVASOR (invasor.js): suena musica/invasor.mp3; al caer, se calla para la pantalla de victoria.
+    if (window.InvaderBoss && activeBoss instanceof window.InvaderBoss) {
+        if (activeBoss.state === 'dead') { stopMusic(); return; }
+        files = ['invasor.mp3', 'nivel' + n + '_jefe.mp3', 'por_defecto_jefe.mp3'];
+    } else if (activeBoss && activeBoss.state !== 'dead') {
         files = ['nivel' + n + '_jefe.mp3', 'por_defecto_jefe.mp3'];
     } else {   // oleadas Y mini jefe: la misma pista de oleada (no se corta ni se reinicia al llegar el mini jefe)
         files = ['nivel' + n + '_oleada.mp3', 'por_defecto_oleada.mp3'];

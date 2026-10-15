@@ -623,6 +623,7 @@
     }
     function startCredits() {
         stopMusic(); enemyBullets.length = 0; bullets.length = 0;
+        try { loadTrack('invasor.mp3'); } catch (e) {}   // precarga la música del jefe durante los créditos
         const lines = buildLines(); let off = 0; lines.forEach(l => { l.off = off; off += l.h; });
         INV.c = { t: 0, scroll: 0, tI: -1, eye: activeBoss, lines, cracks: null, cn: 0 };
         INV.flash = 0;
