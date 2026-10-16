@@ -35,6 +35,9 @@
     window.cancelAnimationFrame = function (id) {
         if (live.has(id)) { nativeCAF(live.get(id)); live.delete(id); } else nativeCAF(id);
     };
+    // El escenario del menú (touhou_ui.js) se anima con tiempo real, así que NO necesita el límite de 60 ticks:
+    // usa estas versiones nativas para correr a la frecuencia real de la pantalla (90/120/144 Hz).
+    window.__nativeRAF = nativeRAF; window.__nativeCAF = nativeCAF;
 })();
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -2002,8 +2005,30 @@ function updateMenuBackground() {
     }
 }
 
+// ---- Fondo VIEJO del menú (lienzo del juego). Desde que el menú usa el escenario de touhou_ui.js ese fondo queda
+// tapado por completo; seguir animándolo (capas de imagen, partículas con sombra, viñeta...) era trabajo perdido
+// que le quitaba fps al menú real. Si el escenario nuevo cubre el lienzo, aquí no se pinta nada.
+let menuLoopActive = false, menuCoverState = false, menuCoverAt = -1e9;
+function menuStageCovers() {
+    const n = performance.now();
+    if (n - menuCoverAt < 400) return menuCoverState;
+    menuCoverAt = n;
+    let ok = false;
+    const el = document.getElementById('thStage');
+    if (el && !el.classList.contains('off') && !menuUI.classList.contains('hidden')) {
+        const r = el.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+        ok = r.width > 0 && r.left <= c.left + 2 && r.top <= c.top + 2 && r.right >= c.right - 2 && r.bottom >= c.bottom - 2;
+    }
+    return (menuCoverState = ok);
+}
 function menuLoop() {
-    if (!isMenu) return; 
+    if (menuLoopActive) return;          // ya hay un bucle vivo: evita bucles duplicados
+    menuLoopActive = true;
+    menuTick();
+}
+function menuTick() {
+    if (!isMenu) { menuLoopActive = false; return; }
+    if (menuStageCovers()) { setTimeout(menuTick, 250); return; }   // tapado: solo vigila, no dibuja
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     // En el menú no hay HUD: el fondo ocupa TODO el lienzo (si no, queda una franja negra a la
     // derecha y el menú se ve descentrado). Se restaura el área de juego real justo después.
@@ -2012,7 +2037,7 @@ function menuLoop() {
     updateMenuBackground();
     playAreaW = pw; playAreaH = ph;
     menuStars.forEach(s => { s.update(); s.draw(); });
-    requestAnimationFrame(menuLoop);
+    requestAnimationFrame(menuTick);
 }
 
 class Star {
@@ -15746,7 +15771,7 @@ const TouhouUI = (function () {
     const api = { pendingPractice: 0, practicePartners: 0, dev: {} };
     const menuUI = $('menuUI'), cv = $('thStage');
     if (!menuUI || !cv) return api;
-    const g = cv.getContext('2d');
+    let g = cv.getContext('2d');          // `let`: bake() lo cambia un momento para pintar en lienzos auxiliares
 
     // ------------------------------------------------------------------ progreso guardado
     let data = { clear: false, l7: false };
@@ -15766,6 +15791,29 @@ const TouhouUI = (function () {
     let introOn = false, startAt = 0, running = false, raf = 0, lastFrame = 0;
     const lowPerf = () => { try { return !!performanceMode; } catch (e) { return false; } };
 
+    // ================================================================== RENDIMIENTO DEL MENÚ
+    // 1) Frecuencia real de pantalla: este escenario ya se anima con el tiempo (`ts`), así que usa el rAF nativo
+    //    y no el limitador de 60 ticks del resto del juego.
+    // 2) Lo que no cambia (cielo, colinas/torre, luna, viñeta, título, nave, anillos del círculo mágico) se pinta
+    //    UNA vez en lienzos auxiliares y después solo se copia con drawImage. Así desaparecen cada cuadro los
+    //    degradados a pantalla completa, ~100 trazos con shadowBlur y el texto con sombra.
+    // 3) Los cachés se preparan de a uno por cuadro durante los primeros segundos (sin tirones).
+    // 4) Regulador: si el equipo no sostiene los fps, baja solo la resolución interna del lienzo.
+    const rafN = window.__nativeRAF || window.requestAnimationFrame.bind(window);
+    const cafN = window.__nativeCAF || window.cancelAnimationFrame.bind(window);
+    let quality = 0;                        // 0 completo · 1 resolución 1x · 2 resolución 0.75x (se ajusta solo)
+    const QUAL_DPR = [9, 1, 0.75];
+    const C = {};                           // cachés; se vacían en resize()
+    function dropCaches() { for (const k in C) delete C[k]; }
+    function bake(w, h, fn) {               // ejecuta fn() pintando en un lienzo auxiliar y lo devuelve
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.ceil(w * dpr)); c.height = Math.max(1, Math.ceil(h * dpr));
+        const prev = g; g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+        try { fn(); } finally { g = prev; }
+        return c;
+    }
+    try { if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => { delete C.top; }); } catch (e) {}
+
     // textura de niebla (una sola vez)
     const mist = document.createElement('canvas'); mist.width = 512; mist.height = 256;
     (function () {
@@ -15782,14 +15830,16 @@ const TouhouUI = (function () {
     const petals = [], bats = [], stars = [];
     function seedScene() {
         petals.length = 0; stars.length = 0;
-        const n = lowPerf() ? 22 : 46;
+        const n = (lowPerf() || quality >= 1) ? 22 : 46;
         for (let i = 0; i < n; i++) petals.push({ x: Math.random(), y: Math.random(), r: 2.5 + Math.random() * 4.5, vx: 0.012 + Math.random() * 0.02, vy: 0.02 + Math.random() * 0.03, rot: Math.random() * TAU, vr: (Math.random() - 0.5) * 0.004, ph: Math.random() * TAU });
         for (let i = 0; i < 60; i++) stars.push({ x: Math.random(), y: Math.random() * 0.6, s: Math.random() * 1.4 + 0.3, ph: Math.random() * TAU });
     }
     function resize() {
         const r = cv.parentNode.getBoundingClientRect();
-        dpr = Math.min(window.devicePixelRatio || 1, lowPerf() ? 1 : 1.5);
-        W = Math.max(2, Math.round(r.width)); H = Math.max(2, Math.round(r.height));
+        const nd = Math.min(window.devicePixelRatio || 1, lowPerf() ? 1 : 1.5, QUAL_DPR[quality]);
+        const nW = Math.max(2, Math.round(r.width)), nH = Math.max(2, Math.round(r.height));
+        if (W && nW === W && nH === H && nd === dpr && L.cr) return;      // nada cambió: conserva lienzo y cachés
+        dpr = nd; W = nW; H = nH; dropCaches();
         cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
         const narrow = W < 720 || W < H * 1.05;
         const ks = clamp(narrow ? Math.min(H * 0.105, W * 0.16) : Math.min(H * 0.14, W * 0.115), 30, 120);
@@ -15806,10 +15856,15 @@ const TouhouUI = (function () {
     window.addEventListener('resize', () => { if (running) resize(); });
 
     // ---- piezas
+    function getSky() {
+        return C.sky || (C.sky = bake(W, H, () => {
+            const gr = g.createLinearGradient(0, 0, 0, H);
+            gr.addColorStop(0, '#22030a'); gr.addColorStop(0.42, '#6c0f1e'); gr.addColorStop(0.74, '#a42434'); gr.addColorStop(1, '#2b060c');
+            g.fillStyle = gr; g.fillRect(0, 0, W, H);
+        }));
+    }
     function drawSky(a) {
-        const gr = g.createLinearGradient(0, 0, 0, H);
-        gr.addColorStop(0, '#22030a'); gr.addColorStop(0.42, '#6c0f1e'); gr.addColorStop(0.74, '#a42434'); gr.addColorStop(1, '#2b060c');
-        g.globalAlpha = a; g.fillStyle = gr; g.fillRect(0, 0, W, H);
+        g.globalAlpha = a; g.drawImage(getSky(), 0, 0, W, H);
         g.fillStyle = '#fff';
         stars.forEach(s => { g.globalAlpha = a * (0.25 + 0.35 * Math.sin(now / 700 + s.ph)) * (1 - s.y * 1.3); g.fillRect(s.x * W, s.y * H, s.s, s.s); });
         g.globalAlpha = 1;
@@ -15823,56 +15878,70 @@ const TouhouUI = (function () {
         }
         g.globalAlpha = 1;
     }
+    function getMoon() {
+        return C.moon || (C.moon = bake(L.mr * 6.8, L.mr * 6.8, () => {
+            const r = L.mr, c = r * 3.4;
+            const glow = g.createRadialGradient(c, c, r * 0.6, c, c, r * 3.4);
+            glow.addColorStop(0, 'rgba(255,110,120,0.55)'); glow.addColorStop(1, 'rgba(255,60,80,0)');
+            g.fillStyle = glow; g.fillRect(0, 0, r * 6.8, r * 6.8);
+            const d = g.createRadialGradient(c - r * 0.3, c - r * 0.3, r * 0.1, c, c, r);
+            d.addColorStop(0, '#fff0ea'); d.addColorStop(0.6, '#ffb3b0'); d.addColorStop(1, '#e8626f');
+            g.fillStyle = d; g.beginPath(); g.arc(c, c, r, 0, TAU); g.fill();
+            g.fillStyle = 'rgba(160,40,60,0.18)';
+            [[-0.3, -0.2, 0.22], [0.25, 0.1, 0.16], [-0.1, 0.35, 0.12], [0.35, -0.35, 0.09]].forEach(k => { g.beginPath(); g.arc(c + k[0] * r, c + k[1] * r, k[2] * r, 0, TAU); g.fill(); });
+        }));
+    }
     function drawMoon(rise, a) {
-        const cx = L.mx, cy = L.my + (1 - rise) * H * 0.75, r = L.mr;
-        const glow = g.createRadialGradient(cx, cy, r * 0.6, cx, cy, r * 3.4);
-        glow.addColorStop(0, 'rgba(255,110,120,0.55)'); glow.addColorStop(1, 'rgba(255,60,80,0)');
-        g.globalAlpha = a; g.fillStyle = glow; g.fillRect(cx - r * 3.4, cy - r * 3.4, r * 6.8, r * 6.8);
-        const d = g.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r);
-        d.addColorStop(0, '#fff0ea'); d.addColorStop(0.6, '#ffb3b0'); d.addColorStop(1, '#e8626f');
-        g.fillStyle = d; g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.fill();
-        g.fillStyle = 'rgba(160,40,60,0.18)';
-        [[-0.3, -0.2, 0.22], [0.25, 0.1, 0.16], [-0.1, 0.35, 0.12], [0.35, -0.35, 0.09]].forEach(c => { g.beginPath(); g.arc(cx + c[0] * r, cy + c[1] * r, c[2] * r, 0, TAU); g.fill(); });
-        g.globalAlpha = 1;
+        const r = L.mr, cx = L.mx, cy = L.my + (1 - rise) * H * 0.75;
+        g.globalAlpha = a; g.drawImage(getMoon(), cx - r * 3.4, cy - r * 3.4, r * 6.8, r * 6.8); g.globalAlpha = 1;
+    }
+    function skyGeo() {
+        if (C.geo) return C.geo;
+        const bw = H * 0.11, bx = L.narrow ? W * 0.28 : W * 0.7, top = H * 0.4;
+        return C.geo = { y0: Math.floor(H * 0.2), bx, bw, top, cx: bx, cy: top + bw * 0.55, cr: bw * 0.36 };
+    }
+    function getSkyline() {
+        return C.sky2 || (C.sky2 = bake(W, H - skyGeo().y0, () => {
+            const { y0, bx, bw, top, cx, cy, cr } = skyGeo();
+            g.translate(0, -y0);
+            // colinas lejanas
+            g.fillStyle = '#3d0a16'; g.beginPath(); g.moveTo(0, H);
+            for (let x = 0; x <= W; x += W / 24) g.lineTo(x, H * 0.82 - Math.sin(x * 0.012 + 1) * H * 0.03 - Math.sin(x * 0.005) * H * 0.04);
+            g.lineTo(W, H); g.fill();
+            // torre del reloj + mansión
+            g.fillStyle = '#16040a';
+            g.fillRect(bx - bw / 2, top, bw, H - top);                                   // fuste
+            g.beginPath(); g.moveTo(bx - bw * 0.62, top); g.lineTo(bx, top - H * 0.1); g.lineTo(bx + bw * 0.62, top); g.fill();   // tejado
+            g.fillRect(bx - bw * 0.07, top - H * 0.15, bw * 0.14, H * 0.06);             // aguja
+            g.fillRect(bx - bw * 2.3, H * 0.62, bw * 1.8, H * 0.4); g.fillRect(bx + bw * 0.5, H * 0.66, bw * 2.1, H * 0.4);       // alas
+            g.fillRect(bx - bw * 2.3, H * 0.6, bw * 0.3, H * 0.03); g.fillRect(bx + bw * 2.3, H * 0.64, bw * 0.3, H * 0.03);
+            // esfera del reloj
+            const cg = g.createRadialGradient(cx, cy, 0, cx, cy, cr * 1.8); cg.addColorStop(0, 'rgba(255,210,120,0.55)'); cg.addColorStop(1, 'rgba(255,160,60,0)');
+            g.fillStyle = cg; g.fillRect(cx - cr * 2, cy - cr * 2, cr * 4, cr * 4);
+            g.fillStyle = '#ffd98a'; g.beginPath(); g.arc(cx, cy, cr, 0, TAU); g.fill();
+            // primer plano
+            g.fillStyle = '#12030a'; g.beginPath(); g.moveTo(0, H);
+            for (let x = 0; x <= W; x += W / 30) g.lineTo(x, H * 0.93 - Math.sin(x * 0.02) * H * 0.012);
+            g.lineTo(W, H); g.fill();
+        }));
     }
     function drawSkyline(a, t) {
-        g.globalAlpha = a;
-        // colinas lejanas
-        g.fillStyle = '#3d0a16'; g.beginPath(); g.moveTo(0, H);
-        for (let x = 0; x <= W; x += W / 24) g.lineTo(x, H * 0.82 - Math.sin(x * 0.012 + 1) * H * 0.03 - Math.sin(x * 0.005) * H * 0.04);
-        g.lineTo(W, H); g.fill();
-        // torre del reloj + mansión
-        const bx = L.narrow ? W * 0.28 : W * 0.7, bw = H * 0.11, top = H * 0.4;
-        g.fillStyle = '#16040a';
-        g.fillRect(bx - bw / 2, top, bw, H - top);                                   // fuste
-        g.beginPath(); g.moveTo(bx - bw * 0.62, top); g.lineTo(bx, top - H * 0.1); g.lineTo(bx + bw * 0.62, top); g.fill();   // tejado
-        g.fillRect(bx - bw * 0.07, top - H * 0.15, bw * 0.14, H * 0.06);             // aguja
-        g.fillRect(bx - bw * 2.3, H * 0.62, bw * 1.8, H * 0.4); g.fillRect(bx + bw * 0.5, H * 0.66, bw * 2.1, H * 0.4);       // alas
-        g.fillRect(bx - bw * 2.3, H * 0.6, bw * 0.3, H * 0.03); g.fillRect(bx + bw * 2.3, H * 0.64, bw * 0.3, H * 0.03);
-        // reloj
-        const cx = bx, cy = top + bw * 0.55, cr = bw * 0.36;
-        const cg = g.createRadialGradient(cx, cy, 0, cx, cy, cr * 1.8); cg.addColorStop(0, 'rgba(255,210,120,0.55)'); cg.addColorStop(1, 'rgba(255,160,60,0)');
-        g.fillStyle = cg; g.fillRect(cx - cr * 2, cy - cr * 2, cr * 4, cr * 4);
-        g.fillStyle = '#ffd98a'; g.beginPath(); g.arc(cx, cy, cr, 0, TAU); g.fill();
+        const { y0, bx, bw, cx, cy, cr } = skyGeo();
+        g.globalAlpha = a; g.drawImage(getSkyline(), 0, y0, W, H - y0);
+        // manecillas
         g.strokeStyle = '#2a0610'; g.lineWidth = Math.max(1, cr * 0.1); g.beginPath();
         const mAng = (t / 1000) * 0.35 - Math.PI / 2, hAng = (t / 1000) * 0.03 - Math.PI / 2;
         g.moveTo(cx, cy); g.lineTo(cx + Math.cos(mAng) * cr * 0.85, cy + Math.sin(mAng) * cr * 0.85);
         g.moveTo(cx, cy); g.lineTo(cx + Math.cos(hAng) * cr * 0.55, cy + Math.sin(hAng) * cr * 0.55); g.stroke();
-        // ventanas
-        g.fillStyle = '#ffcf6a';
+        // ventanas que parpadean
+        g.fillStyle = '#ffcf6a'; g.globalAlpha = a * 0.8;
         for (let i = 0; i < 14; i++) {
-            const wx = bx - bw * 2.1 + (i % 7) * bw * 0.62, wy = H * 0.67 + Math.floor(i / 7) * H * 0.07;
-            if (Math.sin(t / 900 + i * 1.7) > -0.5) { g.globalAlpha = a * 0.8; g.fillRect(wx, wy, bw * 0.12, H * 0.025); }
+            if (Math.sin(t / 900 + i * 1.7) > -0.5) g.fillRect(bx - bw * 2.1 + (i % 7) * bw * 0.62, H * 0.67 + Math.floor(i / 7) * H * 0.07, bw * 0.12, H * 0.025);
         }
-        g.globalAlpha = a;
-        // primer plano
-        g.fillStyle = '#12030a'; g.beginPath(); g.moveTo(0, H);
-        for (let x = 0; x <= W; x += W / 30) g.lineTo(x, H * 0.93 - Math.sin(x * 0.02) * H * 0.012);
-        g.lineTo(W, H); g.fill();
         g.globalAlpha = 1;
     }
     function polyStar(r, n, step) { g.beginPath(); for (let i = 0; i <= n; i++) { const a = -Math.PI / 2 + (i * step % n) * TAU / n; i ? g.lineTo(Math.cos(a) * r, Math.sin(a) * r) : g.moveTo(Math.cos(a) * r, Math.sin(a) * r); } g.stroke(); }
-    function magicCircle(cx, cy, R, t, a, prog) {
+    function magicCircleVec(cx, cy, R, t, a, prog) {
         if (prog <= 0) return;
         g.save(); g.translate(cx, cy); g.lineCap = 'round';
         g.strokeStyle = 'rgba(255,214,190,' + (a * 0.75) + ')'; g.fillStyle = g.strokeStyle;
@@ -15891,13 +15960,13 @@ const TouhouUI = (function () {
         g.beginPath(); g.arc(0, 0, R * 0.22, 0, TAU); g.stroke();
         g.restore();
     }
-    function drawShip(cx, cy, s, t, glowA) {
+    function drawShipVec(cx, cy, s, t, glowA, bodyOnly) {
         const P = (pts, mirror) => { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(cx + p[0] * s * (mirror ? -1 : 1), cy + p[1] * s) : g.moveTo(cx + p[0] * s * (mirror ? -1 : 1), cy + p[1] * s)); g.closePath(); };
         const half = [[0, -1], [0.14, -0.5], [0.2, -0.1], [0.62, 0.42], [0.7, 0.72], [0.32, 0.58], [0.2, 0.8], [0, 0.66]];
         g.save();
         // llama
         const fl = 0.7 + 0.3 * Math.sin(t / 60);
-        [-0.13, 0.13].forEach(ox => {
+        if (!bodyOnly) [-0.13, 0.13].forEach(ox => {
             const fg = g.createLinearGradient(0, cy + s * 0.78, 0, cy + s * (1.15 + 0.25 * fl));
             fg.addColorStop(0, 'rgba(255,255,220,0.95)'); fg.addColorStop(0.4, 'rgba(255,150,70,0.8)'); fg.addColorStop(1, 'rgba(255,40,60,0)');
             g.fillStyle = fg; g.beginPath(); g.moveTo(cx + (ox - 0.07) * s, cy + s * 0.78); g.lineTo(cx + (ox + 0.07) * s, cy + s * 0.78); g.lineTo(cx + ox * s, cy + s * (1.15 + 0.25 * fl)); g.fill();
@@ -15918,20 +15987,104 @@ const TouhouUI = (function () {
         g.strokeStyle = '#5a0a18'; g.lineWidth = Math.max(1, s * 0.01); g.stroke();
         g.restore();
     }
-    function petal(p, t, a) {
-        const x = ((p.x + t * p.vx * 0.00006 * 60 + Math.sin(t / 1400 + p.ph) * 0.02) % 1.1 + 1.1) % 1.1, y = ((p.y + t * p.vy * 0.00006 * 60) % 1.1 + 1.1) % 1.1;
-        g.save(); g.translate(x * W - W * 0.05, y * H - H * 0.05); g.rotate(p.rot + t * p.vr);
+    const PT = new Float32Array(46 * 5);            // c, s, x, y, ry de cada pétalo
+    function drawPetals(a, t) {
+        const n = petals.length; if (!n) return;
+        for (let i = 0; i < n; i++) {
+            const p = petals[i], j = i * 5;
+            const x = ((p.x + t * p.vx * 0.00006 * 60 + Math.sin(t / 1400 + p.ph) * 0.02) % 1.1 + 1.1) % 1.1, y = ((p.y + t * p.vy * 0.00006 * 60) % 1.1 + 1.1) % 1.1;
+            const ang = p.rot + t * p.vr;
+            PT[j] = Math.cos(ang) * dpr; PT[j + 1] = Math.sin(ang) * dpr; PT[j + 2] = (x * W - W * 0.05) * dpr; PT[j + 3] = (y * H - H * 0.05) * dpr;
+            PT[j + 4] = p.r * (0.5 + 0.2 * Math.sin(t / 300 + p.ph));
+        }
         g.globalAlpha = a * 0.85; g.fillStyle = 'rgba(255,170,190,1)';
-        g.beginPath(); g.ellipse(0, 0, p.r, p.r * (0.5 + 0.2 * Math.sin(t / 300 + p.ph)), 0, 0, TAU); g.fill();
-        g.fillStyle = 'rgba(255,225,230,0.8)'; g.beginPath(); g.ellipse(-p.r * 0.2, 0, p.r * 0.5, p.r * 0.2, 0, 0, TAU); g.fill();
+        for (let i = 0; i < n; i++) { const j = i * 5; g.setTransform(PT[j], PT[j + 1], -PT[j + 1], PT[j], PT[j + 2], PT[j + 3]); g.beginPath(); g.ellipse(0, 0, petals[i].r, PT[j + 4], 0, 0, TAU); g.fill(); }
+        g.fillStyle = 'rgba(255,225,230,0.8)';
+        for (let i = 0; i < n; i++) { const j = i * 5, r = petals[i].r; g.setTransform(PT[j], PT[j + 1], -PT[j + 1], PT[j], PT[j + 2], PT[j + 3]); g.beginPath(); g.ellipse(-r * 0.2, 0, r * 0.5, r * 0.2, 0, 0, TAU); g.fill(); }
+        g.setTransform(dpr, 0, 0, dpr, 0, 0); g.globalAlpha = 1;
+    }
+
+    // ---- círculo mágico: cada anillo se pinta una vez (con su sombra) y luego solo se rota con drawImage
+    const CIRC = {
+        base(R) { g.lineWidth = 2; g.beginPath(); g.arc(0, 0, R, 0, TAU); g.stroke(); g.lineWidth = 1; g.beginPath(); g.arc(0, 0, R * 0.95, 0, TAU); g.stroke(); g.beginPath(); g.arc(0, 0, R * 0.22, 0, TAU); g.stroke(); },
+        ticks(R) { for (let i = 0; i < 48; i++) { g.rotate(TAU / 48); g.beginPath(); g.moveTo(R * 0.93, 0); g.lineTo(R * (i % 4 === 0 ? 0.85 : 0.89), 0); g.stroke(); } },
+        hexa(R) {
+            polyStar(R * 0.82, 6, 2); g.save(); g.rotate(Math.PI / 6); polyStar(R * 0.82, 6, 2); g.restore();
+            for (let i = 0; i < 6; i++) { g.beginPath(); g.arc(Math.cos(-Math.PI / 2 + i * TAU / 6) * R * 0.82, Math.sin(-Math.PI / 2 + i * TAU / 6) * R * 0.82, R * 0.04, 0, TAU); g.stroke(); }
+        },
+        ring(R) {
+            g.beginPath(); g.arc(0, 0, R * 0.56, 0, TAU); g.stroke();
+            for (let i = 0; i < 12; i++) { g.rotate(TAU / 12); g.fillRect(R * 0.56 - 2, -2, 4, 4); g.beginPath(); g.moveTo(R * 0.5, 0); g.lineTo(R * 0.46, R * 0.03); g.lineTo(R * 0.46, -R * 0.03); g.closePath(); g.stroke(); }
+        },
+        pent(R) { polyStar(R * 0.46, 5, 2); }
+    };
+    function circPart(name) {
+        const k = 'c_' + name; if (C[k]) return C[k];
+        const R = L.cr, side = 2 * R + 32;
+        return C[k] = bake(side, side, () => {
+            g.translate(side / 2, side / 2); g.lineCap = 'round';
+            g.strokeStyle = 'rgba(255,214,190,0.75)'; g.fillStyle = g.strokeStyle;
+            g.shadowColor = 'rgba(255,60,80,0.9)'; g.shadowBlur = 10; g.lineWidth = 1;
+            CIRC[name](R);
+        });
+    }
+    function magicCircle(cx, cy, R, t, a, prog) {
+        if (prog <= 0) return;
+        if (prog < 1 || a < 1 || R !== L.cr) { magicCircleVec(cx, cy, R, t, a, prog); return; }   // dibujado progresivo de la intro
+        const side = 2 * R + 32, h = side / 2;
+        g.save(); g.translate(cx, cy);
+        g.drawImage(circPart('base'), -h, -h, side, side);
+        g.save(); g.rotate(t * 0.00012); g.drawImage(circPart('ticks'), -h, -h, side, side); g.restore();
+        g.save(); g.rotate(-t * 0.00018); g.drawImage(circPart('hexa'), -h, -h, side, side); g.restore();
+        g.save(); g.rotate(t * 0.0003); g.drawImage(circPart('ring'), -h, -h, side, side); g.restore();
+        g.save(); g.rotate(t * 0.0002); g.drawImage(circPart('pent'), -h, -h, side, side); g.restore();
         g.restore();
+    }
+
+    // ---- nave: el cuerpo (con su gran sombra) va en caché; solo la llama se anima
+    function drawShipFlame(cx, cy, s, t) {
+        const fl = 0.7 + 0.3 * Math.sin(t / 60);
+        [-0.13, 0.13].forEach(ox => {
+            const fg = g.createLinearGradient(0, cy + s * 0.78, 0, cy + s * (1.15 + 0.25 * fl));
+            fg.addColorStop(0, 'rgba(255,255,220,0.95)'); fg.addColorStop(0.4, 'rgba(255,150,70,0.8)'); fg.addColorStop(1, 'rgba(255,40,60,0)');
+            g.fillStyle = fg; g.beginPath(); g.moveTo(cx + (ox - 0.07) * s, cy + s * 0.78); g.lineTo(cx + (ox + 0.07) * s, cy + s * 0.78); g.lineTo(cx + ox * s, cy + s * (1.15 + 0.25 * fl)); g.fill();
+        });
+    }
+    function getShip() {
+        if (C.ship) return C.ship;
+        const s = L.ss, pad = s * 0.4 + 4, ox = pad + s * 0.7, oy = pad + s, w = s * 1.4 + pad * 2, h = s * 1.8 + pad * 2;
+        return C.ship = { ox, oy, w, h, c: bake(w, h, () => drawShipVec(ox, oy, s, 0, 1, true)) };
+    }
+    function drawShip(cx, cy, s, t, glowA) {
+        if (glowA < 1 || s !== L.ss) { drawShipVec(cx, cy, s, t, glowA); return; }                 // aparición con resplandor creciente
+        const k = getShip();
+        drawShipFlame(cx, cy, s, t);
+        g.drawImage(k.c, cx - k.ox, cy - k.oy, k.w, k.h);
+    }
+
+    // ---- viñeta, franja inferior, título y pie: estáticos cuando termina la intro
+    function drawStrip() {
+        const bg = g.createLinearGradient(0, H * 0.86, 0, H); bg.addColorStop(0, 'rgba(0,0,0,0)'); bg.addColorStop(1, 'rgba(0,0,0,0.55)'); g.fillStyle = bg; g.fillRect(0, H * 0.86, W, H * 0.14);
+    }
+    function drawFooter(al) {
+        g.globalAlpha = al; g.fillStyle = '#ffe9de'; g.font = '700 ' + Math.max(9, Math.round(H * 0.018)) + 'px ' + SERIF; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+        g.fillText('© Space Game Remake — edición estilo Touhou v5', L.narrow ? 10 : W * 0.04, H - 30); g.globalAlpha = 1;
+    }
+    function getVig() {
+        return C.vig || (C.vig = bake(W, H, () => {
+            const vg = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+            vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(10,0,3,0.7)'); g.fillStyle = vg; g.fillRect(0, 0, W, H);
+        }));
+    }
+    function getTop() {
+        return C.top || (C.top = bake(W, H, () => { g.drawImage(getVig(), 0, 0, W, H); drawStrip(); drawTitle(1e9); drawFooter(0.9); }));
     }
     function spawnBat() {
         const dir = Math.random() < 0.5 ? 1 : -1;
         bats.push({ x: dir > 0 ? -0.05 : 1.05, y: 0.1 + Math.random() * 0.4, vx: dir * (0.00006 + Math.random() * 0.00004), s: 0.012 + Math.random() * 0.012, ph: Math.random() * TAU, wob: Math.random() * TAU });
     }
     function drawBats(dt, a) {
-        if (bats.length < 4 && Math.random() < 0.004) spawnBat();
+        if (bats.length < 4 && Math.random() < 0.004 * (dt / 16.667)) spawnBat();
         for (let i = bats.length - 1; i >= 0; i--) {
             const b = bats[i]; b.x += b.vx * dt; if (b.x < -0.1 || b.x > 1.1) { bats.splice(i, 1); continue; }
             const x = b.x * W, y = (b.y + Math.sin(now / 600 + b.wob) * 0.02) * H, s = b.s * H, f = Math.sin(now / 70 + b.ph);
@@ -16000,18 +16153,45 @@ const TouhouUI = (function () {
         g.restore();
     }
 
+    // ---- regulador de calidad: mide fps reales (ya con la intro terminada) y, si no se sostienen, baja la resolución
+    let gvN = 0, gvSum = 0, gvSkip = 90;
+    function applyLite() {                  // con fps bajos también se quita el desenfoque de fondo de los paneles (muy caro sobre un lienzo animado)
+        if (quality < 1 || applyLite.done) return; applyLite.done = true;
+        menuUI.classList.add('th-lite');
+        const st = document.createElement('style');
+        st.textContent = '#menuUI.th-lite, #menuUI.th-lite *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}';
+        document.head.appendChild(st);
+    }
+    function governor(rawDt) {
+        if (introOn || rawDt > 250) { gvN = 0; gvSum = 0; return; }                  // intro o pestaña dormida: no medir
+        if (gvSkip > 0) { gvSkip--; return; }
+        gvN++; gvSum += rawDt;
+        if (gvN >= 90) {
+            const avg = gvSum / gvN; gvN = 0; gvSum = 0;
+            if (avg > 24 && quality < 2) { quality++; gvSkip = 90; applyLite(); resize(); }
+        }
+    }
+    // cachés que se preparan de a uno por cuadro mientras el menú respira (así no hay tirones al usarlos)
+    const WARM = [['sky', getSky], ['moon', getMoon], ['sky2', getSkyline], ['vig', getVig],
+        ['c_base', () => circPart('base')], ['c_ticks', () => circPart('ticks')], ['c_hexa', () => circPart('hexa')], ['c_ring', () => circPart('ring')], ['c_pent', () => circPart('pent')],
+        ['ship', getShip], ['top', getTop]];
+    function warmStep() { for (let i = 0; i < WARM.length; i++) if (!C[WARM[i][0]]) { WARM[i][1](); return; } }
+
     let now = 0;
     function frame(ts) {
-        raf = requestAnimationFrame(frame); if (!running) return;
-        now = ts; const dt = Math.min(50, ts - (lastFrame || ts)); lastFrame = ts;
+        raf = rafN(frame); if (!running) return;
+        const rawDt = ts - (lastFrame || ts);
+        now = ts; const dt = Math.min(50, rawDt); lastFrame = ts;
         if (!W) resize();
+        governor(rawDt);
         const T = introOn ? ts - startAt : INTRO_END + (ts - startAt);       // T no se detiene: el menú sigue animado
         const t = ts;
         g.setTransform(dpr, 0, 0, dpr, 0, 0);
-        g.fillStyle = '#050102'; g.fillRect(0, 0, W, H);
         const skyA = seg(T, 3600, 5600), moonUp = easeOut(seg(T, 4600, 9000)), skylineA = seg(T, 5200, 7600);
+        if (skyA < 1) { g.fillStyle = '#050102'; g.fillRect(0, 0, W, H); }   // con el cielo opaco no hace falta borrar
         // temblor corto al estamparse cada kanji
-        let shake = 0; KT.forEach(k => { const a = T - k; if (a > 0 && a < 260) shake = Math.max(shake, (1 - a / 260) * (k === KT[2] ? 7 : 4)); });
+        let shake = 0;
+        if (T < 10800) KT.forEach(k => { const a = T - k; if (a > 0 && a < 260) shake = Math.max(shake, (1 - a / 260) * (k === KT[2] ? 7 : 4)); });
         g.save(); if (shake) g.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
         if (skyA > 0) {
             drawSky(skyA); drawMoon(moonUp, skyA); drawBats(dt, skyA * 0.9); drawSkyline(skylineA, t); drawMist(skyA, t);
@@ -16020,24 +16200,20 @@ const TouhouUI = (function () {
             // nave que emerge
             const sp = easeOut(seg(T, 7000, 9000));
             if (sp > 0) { const by = L.sy + Math.sin(t / 700) * L.ss * 0.05; drawShip(L.sx, by + (1 - sp) * H * 0.9, L.ss, t, sp); }
-            const pa = seg(T, 6400, 8400); if (pa > 0) petals.forEach(p => petal(p, t, pa));
+            const pa = seg(T, 6400, 8400); if (pa > 0) drawPetals(pa, t);
             // destello de llegada
             const fl = seg(T, 8700, 8800) * (1 - seg(T, 8800, 9400)); if (fl > 0) { g.fillStyle = 'rgba(255,230,225,' + (fl * 0.55) + ')'; g.fillRect(0, 0, W, H); }
-            // viñeta
-            const vg = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
-            vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(10,0,3,' + (0.7 * skyA) + ')'); g.fillStyle = vg; g.fillRect(0, 0, W, H);
-            // franja inferior oscura para que el pie de página se lea
-            const bg = g.createLinearGradient(0, H * 0.86, 0, H); bg.addColorStop(0, 'rgba(0,0,0,0)'); bg.addColorStop(1, 'rgba(0,0,0,0.55)'); g.fillStyle = bg; g.fillRect(0, H * 0.86, W, H * 0.14);
-            drawTitle(T);
+            if (T >= 12400) g.drawImage(getTop(), 0, 0, W, H);                // viñeta + franja + título + pie, ya terminados
+            else { g.globalAlpha = skyA; g.drawImage(getVig(), 0, 0, W, H); g.globalAlpha = 1; drawStrip(); drawTitle(T); }
         }
         g.restore();
-        drawStudio(T);
-        // derechos al pie (como en la portada original)
-        if (T > 11500) { g.globalAlpha = seg(T, 11500, 12400) * 0.9; g.fillStyle = '#ffe9de'; g.font = '700 ' + Math.max(9, Math.round(H * 0.018)) + 'px ' + SERIF; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText('© Space Game Remake — edición estilo Touhou v5', L.narrow ? 10 : W * 0.04, H - 30); g.globalAlpha = 1; }
+        if (T < 4100) drawStudio(T);
+        if (T > 11500 && T < 12400) drawFooter(seg(T, 11500, 12400) * 0.9);   // derechos al pie (como en la portada original)
         if (introOn && T >= INTRO_END - 700) endIntro();
+        warmStep();
     }
-    function start() { cv.classList.remove('off'); resize(); if (!running) { running = true; lastFrame = 0; raf = requestAnimationFrame(frame); } }
-    function stop() { running = false; cancelAnimationFrame(raf); raf = 0; cv.classList.add('off'); }
+    function start() { cv.classList.remove('off'); resize(); if (!running) { running = true; lastFrame = 0; gvN = 0; gvSum = 0; gvSkip = 90; raf = rafN(frame); } }
+    function stop() { running = false; cafN(raf); raf = 0; cv.classList.add('off'); }
 
     // ------------------------------------------------------------------ intro
     function beginIntro() { introOn = true; startAt = performance.now(); menuUI.classList.add('th-intro'); show('main'); try { document.fonts && document.fonts.load('900 40px "Noto Serif JP"', '宇宙遊戯'); document.fonts.load('800 20px "Cinzel"'); } catch (e) {} }
