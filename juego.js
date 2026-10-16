@@ -768,6 +768,25 @@ const LUNATIC_ENEMY_BOOST = 1.18;
 // reciben 35 % menos daño (LUNATIC_DEFENSE_MODE_MULT = 0.65), usan sus habilidades más poderosas y descansan menos entre ellas.
 const LUNATIC_BOSS_HP_BOOST = 1.30;
 const LUNATIC_DEFENSE_MODE_MULT = 0.65;
+// v28 · AJUSTE DE VIDA DE JEFES (feedback: demasiada vida en los últimos niveles de Difícil y Lunático).
+// Multiplica la vida del JEFE FINAL (BOSS_HP_TUNE) y del MINI JEFE (MINI_HP_TUNE) según dificultad y nivel.
+// Un valor por nivel: [N1, N2, N3, N4, N5, N6, N7]. 1 = sin cambio; 0.7 = 30 % menos vida. Fácil, Medio y Clásico no cambian.
+// En el Modo Infinito los niveles 8+ usan el valor del nivel 7. El jefe secreto (invasor.js) puede llamar a window.bossHpTune(hp, nivel).
+const BOSS_HP_TUNE = {
+    dificil:  [1, 1, 1, 0.86, 0.70, 0.66, 0.85],
+    lunatico: [1, 1, 1, 0.68, 0.52, 0.46, 0.66]
+};
+const MINI_HP_TUNE = {
+    dificil:  [1, 1, 1, 0.88, 0.78, 0.72, 0.90],
+    lunatico: [1, 1, 1, 0.70, 0.60, 0.52, 0.76]
+};
+function bossHpTune(hp, waveNum, isMini) {
+    if (currentMode === 'clasico') return hp;
+    const t = (isMini ? MINI_HP_TUNE : BOSS_HP_TUNE)[currentDiff];
+    if (!t) return hp;
+    return Math.max(1, Math.round(hp * t[Math.min(Math.max(waveNum, 1), t.length) - 1]));
+}
+window.bossHpTune = bossHpTune;
 function lunaticBossMode() { return currentDiff === 'lunatico' && currentMode !== 'clasico'; }
 function lunaticEnemyBoost() { return (currentDiff === 'lunatico' && currentMode !== 'clasico') ? LUNATIC_ENEMY_BOOST : 1; }
 function enemyDefenseFactor() {
@@ -2917,7 +2936,7 @@ class Boss {
         let hpMultiplier = currentMode === 'infinito' ? 100 : 150; 
         let baseHp = 300 + (waveNum * hpMultiplier); 
         let earlyWaveFactor = waveNum <= 2 ? 0.5 : (waveNum <= 4 ? 0.75 : 1);
-        this.maxHp = Math.round(baseHp * earlyWaveFactor * (lunaticBossMode() ? LUNATIC_BOSS_HP_BOOST : 1));
+        this.maxHp = bossHpTune(Math.round(baseHp * earlyWaveFactor * (lunaticBossMode() ? LUNATIC_BOSS_HP_BOOST : 1)), waveNum, false);   // v28: ajuste de vida (Difícil/Lunático)
         this.hp = this.maxHp;
         
         this.state = 'intro'; 
@@ -3268,7 +3287,7 @@ class MiniBoss {
         this.restY = 85;
 
         let hpBase = 90 + waveNum * 55;
-        this.maxHp = Math.round(hpBase * (currentMode === 'infinito' ? 0.75 : 1) * (lunaticBossMode() ? LUNATIC_BOSS_HP_BOOST : 1));
+        this.maxHp = bossHpTune(Math.round(hpBase * (currentMode === 'infinito' ? 0.75 : 1) * (lunaticBossMode() ? LUNATIC_BOSS_HP_BOOST : 1)), waveNum, true);   // v28: ajuste de vida (Difícil/Lunático)
         this.hp = this.maxHp;
 
         this.state = 'intro';
@@ -4831,9 +4850,14 @@ function gameLoop() {
         if (spawningEnemies) {
             waveTimer++;
             let dsp = difficultySettings[currentDiff];
-            const waveEvtBusy = !!(window.WaveAttacks && WaveAttacks.blocksSpawn());
+            // v29: en las mini secciones siguen cayendo enemigos, a menor ritmo (WaveAttacks.spawnFactor) y sin contar
+            // a los enemigos del propio evento (blasters, etc.) para el tope de pantalla.
+            const evDens = (window.WaveAttacks && WaveAttacks.spawnFactor) ? WaveAttacks.spawnFactor() : 1;
+            const evActive = evDens < 1;
             const lateL = lunaticLate(), maxEn = dsp.maxEnemies + lateL * 2;      // Lunático nivel 5-7: +2 enemigos máx. por nivel
-            if (!waveEvtBusy && enemies.length < maxEn && Math.random() < dsp.enemySpawnRate * (1 + 0.25 * lateL)) {
+            const maxEnNow = evActive ? Math.max(3, Math.round(maxEn * 0.75)) : maxEn;
+            const normalCount = evActive ? enemies.filter(e => !e.fromEvent).length : enemies.length;
+            if (normalCount < maxEnNow && Math.random() < dsp.enemySpawnRate * (1 + 0.25 * lateL) * evDens) {
                 let r = Math.random();
                 let type = r < 0.16 + 0.04 * lateL ? 2 : (r < 0.28 + 0.09 * lateL ? 3 : 1);   // más resistentes (2) y más rápidos (3)
                 let w = type === 2 ? 96 : (type === 3 ? 60 : 78);
@@ -4843,11 +4867,11 @@ function gameLoop() {
 
             // Cada cierto tiempo entra una fila completa de 5 hadas en formación,
             // con su propio patrón de grupo (ver spawnFormation/updateFormationX).
-            if (!waveEvtBusy) formationCooldown--;
-            if (!waveEvtBusy && formationCooldown <= 0) {
+            formationCooldown -= evDens;   // en una mini sección la cuenta avanza más lenta (menos filas)
+            if (formationCooldown <= 0) {
                 if (enemies.some(e => e.formation && e.y < 130)) {
                     formationCooldown = 40;  // el grupo anterior aún está entrando: no se mezclan filas
-                } else if (enemies.length <= maxEn - 2) {
+                } else if (normalCount <= maxEnNow - 2) {
                     spawnFormation(currentLevelIndex());
                     formationCooldown = Math.round((330 + Math.random() * 180) / (dsp.enemySpeedMult || 1) * (1 - 0.13 * lateL));
                 } else {
@@ -11656,8 +11680,8 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
 // ============================================================================
 //  ONDAS.JS — Mini secciones estilo Undertale + enemigos con funciones (Moderno)
 // ----------------------------------------------------------------------------
-//  • Cada oleada de enemigos (1:30) tiene 3 "mini secciones" donde se pausan los
-//    enemigos normales y entran enemigos especiales con ataques tipo Gaster
+//  • Cada oleada de enemigos (1:30) tiene 3 "mini secciones" donde los enemigos normales siguen
+//    cayendo (a menor ritmo, ver EVENT_SPAWN) y entran enemigos especiales con ataques tipo Gaster
 //    Blaster (rayos en columna) u ondas expansivas hacia abajo.
 //  • Entre secciones aparecen enemigos sueltos con distintas FUNCIONES:
 //      - BLASTER  : se planta arriba y dispara un rayo vertical.
@@ -11707,6 +11731,13 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
         { id: 'ball',   name: 'BOLAS REBOTADORAS',    hint: '¡CUENTA LOS REBOTES!' },
         { id: 'press',  name: 'PRENSA DE LUZ',        hint: '¡QUÉDATE EN LA FRANJA VERDE!' }
     ];
+
+    // v29: durante las mini secciones los enemigos normales SIGUEN cayendo (antes se pausaban y se sentían vacías).
+    // Factor de aparición por evento (1 = normal, 0.5 = la mitad de enemigos/formaciones). Más bajo en los que ya llenan la pantalla de balas.
+    const EVENT_SPAWN = {
+        row: 0.5, lock: 0.5, waves: 0.5, drop: 0.45, wind: 0.65, stars: 0.6, wall: 0.6, storm: 0.6, mines: 0.45,
+        laser: 0.6, meteor: 0.6, moth: 0.45, spiral: 0.4, ball: 0.5, press: 0.6
+    };
 
     // ----------------------------------------------------------- dificultad
     const DIFF = {
@@ -12895,7 +12926,14 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
     const API = {
         reset() { hazards = []; ev = null; evKey = ''; evIdx = 0; evCool = 0; roleTimer = 0; },
 
-        blocksSpawn() { return isModern() && !!ev; },
+        blocksSpawn() { return false; },   // v29: ya no se pausan los enemigos normales durante una mini sección (ver spawnFactor)
+
+        // Multiplicador de aparición de enemigos normales: 1 fuera de mini secciones y durante el aviso; reducido mientras corre el evento.
+        spawnFactor() {
+            if (!isModern() || !ev || ev.state === 'announce') return 1;
+            return EVENT_SPAWN[ev.def.id] || 0.55;
+        },
+        inEvent() { return isModern() && !!ev; },
 
         onEnemyDeath(e) {
             if (e.role === 'bomber') hazards.push(new Burst(e.x + e.width / 2, e.y + e.height / 2));
