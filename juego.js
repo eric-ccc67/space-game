@@ -836,8 +836,12 @@ function waveDurFor() {
 }
 // Descenso más pausado de los enemigos en Moderno (las oleadas son más largas).
 // Los enemigos bajan ~22 % más rápido que antes (ajusta ENEMY_DESCENT_BOOST: 1 = como antes).
-const ENEMY_DESCENT_BOOST = 1.22;
-function enemyDescentMult() { return (currentMode === 'moderno' ? 0.78 : 1) * ENEMY_DESCENT_BOOST * lunaticEnemyBoost(); }   // +18 % al bajar en Lunático
+const ENEMY_DESCENT_BOOST = 1.32;   // antes 1.22: los enemigos bajan ~8 % más rápido en todas las dificultades
+// Velocidad extra POR NIVEL: cada nivel suma este porcentaje al descenso (más alto cuanto mayor la dificultad).
+// Se acumula hasta el nivel 10. Ej. Medio: nivel 1 = x1.00, nivel 4 = x1.105, nivel 6 = x1.175. Ajusta los valores a gusto.
+const ENEMY_LEVEL_STEP = { facil: 0.025, medio: 0.035, dificil: 0.045, lunatico: 0.05 };
+function enemyLevelSpeed() { return 1 + (ENEMY_LEVEL_STEP[currentDiff] || 0.035) * (Math.min(Math.max(currentWave, 1), 10) - 1); }
+function enemyDescentMult() { return (currentMode === 'moderno' ? 0.78 : 1) * ENEMY_DESCENT_BOOST * lunaticEnemyBoost() * enemyLevelSpeed(); }   // +18 % al bajar en Lunático
 let activeBoss = null;
 let isEndless = false;
 
@@ -11878,8 +11882,8 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
             const mult = difficultySettings[currentDiff].enemySpeedMult || 1;
             if (role === 'blaster') this.hp = opts.hp || 7;
             else if (role === 'pulser') this.hp = opts.hp || 7;
-            else if (role === 'sniper') { this.hp = 4; this.vy = 0.55 * mult * lunaticEnemyBoost(); this.shotsLeft = opts.shots || 2; this.aimT = 0; this.coolT = 0; this.lockA = Math.PI / 2; this.locked = false; }
-            else if (role === 'bomber') { this.hp = 4; this.vy = 0.62 * mult * lunaticEnemyBoost(); this.sway = 26; this.swayFreq = 0.02; }
+            else if (role === 'sniper') { this.hp = 4; this.vy = 0.55 * mult * lunaticEnemyBoost() * enemyLevelSpeed(); this.shotsLeft = opts.shots || 2; this.aimT = 0; this.coolT = 0; this.lockA = Math.PI / 2; this.locked = false; }
+            else if (role === 'bomber') { this.hp = 4; this.vy = 0.62 * mult * lunaticEnemyBoost() * enemyLevelSpeed(); this.sway = 26; this.swayFreq = 0.02; }
             this.isMinion = false; this.cadenceFrames = null;
             this.formation = null;
         }
