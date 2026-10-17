@@ -1,3 +1,28 @@
+# Cambios v30 — Jefes con poderes únicos (Touhou 6 / Undertale / Deltarune)
+
+Los **8 jefes principales** (los 7 de nivel + EL INVASOR; los mini jefes no se tocaron) tienen ataques nuevos, coherentes con el nombre de su poder, y **sprites de balas propios** por jefe. Todo vive en la carpeta nueva `jefes/` (se carga al final de `index.html`, no modifica `juego.js`, `choque.js` ni `perfil.js`).
+
+**Cómo funciona cada pelea**
+- Cada ataque es una *spell card* con nombre japonés + español (cartel arriba) y una frase del jefe en un **globo de texto estilo Undertale**.
+- Fases: >75 % y 75-50 % ataques normales → al 50 % el **ESPECIAL** firma del jefe (el rótulo `BOSS_SPECIAL_NAMES` cambió para coincidir) → por debajo del 25 % alterna con su **ÚLTIMA PALABRA**.
+- Mecánicas nuevas: **alma AZUL** (solo duele si te mueves) y **NARANJA**, balas que se congelan y reanudan, balas que se transforman, rayos con aviso, zonas que ralentizan/atraen, viento que empuja, tinta, charcos, entidades grandes.
+
+| Jefe | Identidad | Ataques (último = Última Palabra) |
+|---|---|---|
+| 1 Kyūbi | kitsune | Fuegos fatuos serpenteantes · Hojas que se vuelven bolas de fuego · Mil portones torii (pilares de fuego) · Clones-máscara · **Nueve Colas** · Ventisca de sakura |
+| 2 Rey Yeti | hielo | Carámbanos · Bola de nieve gigante que rebota y se parte · Congelación perfecta · Viento que empuja · **Rugido del Rey** · Cero absoluto (alma azul) |
+| 3 Kraken | mar fantasma | Burbujas que revientan · Tentáculos del fondo · Maelstrom (atrae) · Ancla fantasma + olas · **Furia del Kraken** (tinta) · Gran marejada |
+| 4 Reina Araña | araña | Gotas de veneno · Crías en estampida · Telaraña (ralentiza) · Cortina de hilos · **Seda Mortal** (6 rayos giratorios) · Vals de la viuda negra |
+| 5 Archiliche | grimorios | Páginas ardientes · Gota del silencio · Hoja del milenio · Marcapáginas de hierro · Peso del libro prohibido · **Apocalipsis escrito** (letras) · Grimorio de los siete astros |
+| 6 Coloso del Reloj | tiempo | Aguja detenida · Engranajes · Péndulo eterno · Manecillas (rayos) · Rebobinado · **El mundo se detiene** · Bucle eterno (el patrón se repite igual) |
+| 7 Ojo Gigante | vampiro | Lágrimas + charcos de sangre · Mirada sangrienta · Murciélagos · Eclipse carmesí · **Lágrima Carmesí** (sube el mar de sangre) · Destino escarlata (4 ojos con rayos) |
+| 8 EL INVASOR | arcade | Conserva sus ataques y suma **GALAGA** (rayo tractor + abejas), **SNAKE** (serpiente de balas) y **FROGGER** (carriles de coches) |
+
+**Archivos**: `jefes/motor.js` (sprites, balas, rayos, zonas, UI, cerebro) y `jefes/j1_kyubi.js` … `j7_ojo.js` (un jefe por archivo; cada ataque es un objeto `{ id, name, jp, line, dur, tick }` fácil de editar). Los ataques del Invasor están en `invasor.js`.
+**Consola** (en una pelea de jefe): `JefesUnicos.dev.list(0)` lista los ataques del jefe del nivel 1; `JefesUnicos.dev.force('nuevecolas')` fuerza uno. La dificultad escala velocidad, cantidad e intervalos con los mismos ajustes de siempre (`difficultySettings`).
+
+---
+
 # Cambios v27 — Bombas renovadas
 
 - **Stock máximo de 4 bombas** (`BOMB_MAX`). Cada `GRAZE_MAX` puntos de graze (balas rozadas y gemas verdes) rellenan 1 bomba; con 4 en stock el graze ya no se acumula. Usar una bomba gasta 1 y conserva el progreso de graze. Los HUD muestran 4 estrellas de stock y la barra de progreso hacia la siguiente. El botón táctil muestra `BOMBA xN`.

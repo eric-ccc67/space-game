@@ -155,6 +155,45 @@
         };
         return b;
     }
+    // ---- v30: tres ataques arcade nuevos (GALAGA, SNAKE, FROGGER)
+    function galagaBee(x, y, dir) {              // abeja de Galaga: se lanza en picada haciendo un rizo
+        const b = mk(x, y, 0, 2.5, 11); b._t = 0; b._dir = dir;
+        b.update = function () { this._t++; this.vx = Math.sin(this._t * 0.085) * 2.6 * this._dir; this.x += this.vx; this.y += this.vy; };
+        b.draw = function () {
+            const x = Math.round(this.x), y = Math.round(this.y), w = (this._t >> 2) & 1;
+            ctx.save(); ctx.fillStyle = '#3a5aff'; ctx.fillRect(x - 3, y - 5, 6, 10); ctx.fillStyle = '#ffe14a'; ctx.fillRect(x - 8, y - 4 + w * 2, 5, 4); ctx.fillRect(x + 3, y - 4 + w * 2, 5, 4);
+            ctx.fillStyle = '#ff3030'; ctx.fillRect(x - 2, y - 3, 1, 1); ctx.fillRect(x + 1, y - 3, 1, 1); ctx.restore();
+        };
+        return b;
+    }
+    function snakeChain(x0, speedY) {            // serpiente de balas: la cabeza zigzaguea y el cuerpo sigue su rastro
+        const ctrl = { trail: [] }, out = [], W = playAreaW;
+        for (let i = 0; i < 9; i++) {
+            const b = mk(x0, 52, 0, 0, 13); b._t = 0; b._i = i;
+            if (i === 0) {
+                b.update = function () { this._t++; this.y += speedY; this.x = clamp(x0 + Math.sin(this._t * 0.055) * W * 0.33, 14, W - 14); ctrl.trail.push({ x: this.x, y: this.y }); if (ctrl.trail.length > 90) ctrl.trail.shift(); };
+            } else {
+                b.update = function () { const tr = ctrl.trail, k = tr.length - 1 - this._i * 6; if (k >= 0) { this.x = tr[k].x; this.y = tr[k].y; } else { this.x = -999; } };
+            }
+            b.draw = function () {
+                if (this.x < -500) return; const x = Math.round(this.x), y = Math.round(this.y), h = this._i === 0;
+                ctx.save(); ctx.fillStyle = h ? '#c8ff6a' : (this._i % 2 ? '#3ed83e' : '#2ab02a'); ctx.fillRect(x - 7, y - 7, 14, 14);
+                if (h) { ctx.fillStyle = '#10300a'; ctx.fillRect(x - 4, y - 3, 3, 3); ctx.fillRect(x + 1, y - 3, 3, 3); }
+                ctx.restore();
+            };
+            out.push(b);
+        }
+        return out;
+    }
+    function froggerCar(x, y, vx, col) {         // coche de Frogger: tres cuadrados en fila
+        const out = [];
+        for (let k = -1; k <= 1; k++) {
+            const b = mk(x + k * 13, y, vx, 0, 12);
+            b.draw = function () { const xx = Math.round(this.x), yy = Math.round(this.y); ctx.save(); ctx.fillStyle = col; ctx.fillRect(xx - 7, yy - 7, 14, 14); ctx.fillStyle = '#fff'; if (k === (vx > 0 ? 1 : -1)) ctx.fillRect(xx + (vx > 0 ? 2 : -5), yy - 5, 3, 3); ctx.restore(); };
+            out.push(b);
+        }
+        return out;
+    }
     const TET = ['#00f0f0', '#f0f000', '#b000f0', '#00f000', '#f00000', '#3050ff', '#ff9a00'];
     function tetCell(x, y, vy, ci) {
         const b = mk(x, y, 0, vy, 22); b._c = TET[ci % 7];
@@ -243,11 +282,11 @@
     // ==========================================================================================
     const POOL = {
         1: ['zigzag', 'plunger', 'march', 'zigzag', 'plunger'],
-        2: ['zigzag', 'plunger', 'march', 'bunkers', 'ufo', 'pong', 'tetris', 'asteroids'],
-        3: ['zigzag', 'plunger', 'pong', 'tetris', 'asteroids', 'pacman', 'curtain', 'spiral', 'laser', 'ufo', 'march']
+        2: ['zigzag', 'plunger', 'march', 'bunkers', 'ufo', 'pong', 'tetris', 'asteroids', 'snake', 'frogger'],
+        3: ['zigzag', 'plunger', 'pong', 'tetris', 'asteroids', 'pacman', 'curtain', 'spiral', 'laser', 'ufo', 'march', 'galaga', 'snake', 'frogger']
     };
-    const TAGS = { zigzag: 'ZIGZAG', plunger: 'PLUNGER', march: '¡INVASIÓN!', bunkers: 'ESCUDOS 1978', ufo: 'OVNI MISTERIOSO', pong: 'PONG', tetris: 'TETRIS', asteroids: 'ASTEROIDS', pacman: 'WAKA WAKA', curtain: 'SPACE INVADERS', spiral: 'INSERT COIN', laser: 'CAÑÓN LÁSER' };
-    const ATK_LEN = { zigzag: 110, plunger: 80, march: 20, bunkers: 40, ufo: 30, pong: 110, tetris: 200, asteroids: 130, pacman: 170, curtain: 90, spiral: 210, laser: 190 };
+    const TAGS = { zigzag: 'ZIGZAG', plunger: 'PLUNGER', march: '¡INVASIÓN!', bunkers: 'ESCUDOS 1978', ufo: 'OVNI MISTERIOSO', pong: 'PONG', tetris: 'TETRIS', asteroids: 'ASTEROIDS', pacman: 'WAKA WAKA', curtain: 'SPACE INVADERS', spiral: 'INSERT COIN', laser: 'CAÑÓN LÁSER', galaga: 'GALAGA', snake: 'SNAKE', frogger: 'FROGGER' };
+    const ATK_LEN = { zigzag: 110, plunger: 80, march: 20, bunkers: 40, ufo: 30, pong: 110, tetris: 200, asteroids: 130, pacman: 170, curtain: 90, spiral: 210, laser: 190, galaga: 210, snake: 150, frogger: 210 };
 
     class InvaderBoss {
         constructor() {
@@ -311,7 +350,7 @@
         }
 
         beginTransition() {
-            this.trans = 100; this.atk = null; this.cool = 40; clearMyBullets();
+            this.trans = 100; this.atk = null; this.tractor = null; this.cool = 40; clearMyBullets();
             screenShake = 22; playExplosionSound();
             if (this.phase === 2) { this.say('¡INSERTA MONEDA PARA CONTINUAR!', 120); this.tag = { text: 'NIVEL 2', t: 100 }; }
             else { this.say('¡MODO DIFÍCIL! ¡DOBLE VELOCIDAD!', 120); this.tag = { text: 'NIVEL 3 · ¡DIFÍCIL!', t: 100 }; }
@@ -379,6 +418,36 @@
                     break;
                 case 'laser':
                     if (t === 0 || t === 40 || t === 80) { this.beams.push({ x: clamp(pcx() + (t ? rnd(-60, 60) : 0), 20, W - 20), t: 0, warn: 55, on: 22 }); beep(900, 0.4, 'sawtooth', 0.03, 1400); }
+                    break;
+                case 'galaga': {                       // rayo tractor + abejas en picada
+                    if (t === 0) { this.tractor = { x: clamp(pcx() + rnd(-80, 80), 90, W - 90), t: 0 }; beep(300, 0.7, 'sawtooth', 0.04, 900); this.say('¡TE CAPTURO LA NAVE!', 90); }
+                    const T = this.tractor;
+                    if (T) {
+                        T.t++; T.x += (pcx() - T.x) * 0.012;
+                        if (T.t > 50 && T.t < 175) {
+                            const hw = 20 + clamp((pcy() - this.bottom) / Math.max(1, playAreaH - this.bottom), 0, 1) * 58;
+                            if (Math.abs(pcx() - T.x) < hw && pcy() > this.bottom) {
+                                player.y = Math.max(0, player.y - 1.25);
+                                if (player.y < this.bottom + 6) { hurt(); player.y = Math.min(playAreaH - player.height, this.bottom + 90); }
+                            }
+                        }
+                        if (T.t > 176) this.tractor = null;
+                    }
+                    if (t % 24 === 0 && t > 20 && t < 150) fire(galagaBee(sx(), by, Math.random() < 0.5 ? 1 : -1));
+                    break;
+                }
+                case 'snake':
+                    if (t === 0) { snakeChain(clamp(pcx() + rnd(-60, 60), 80, W - 80), 2.3).forEach(fire); if (ph >= 3) snakeChain(W - clamp(pcx(), 80, W - 80), 2.0).forEach(fire); beep(200, 0.2, 'square', 0.05, 400); }
+                    break;
+                case 'frogger':
+                    if (t % 36 === 0 && t < 150) {
+                        for (let lane = 0; lane < 4; lane++) {
+                            if (Math.random() < 0.4) continue;
+                            const dir = lane % 2 ? -1 : 1, y = this.bottom + 70 + lane * 52, cols = ['#ff5a5a', '#ffd23a', '#4ad0ff', '#c07aff'];
+                            froggerCar(dir > 0 ? -20 : W + 20, y, dir * (2.6 + lane * 0.5), cols[lane]).forEach(fire);
+                        }
+                        beep(160, 0.08, 'square', 0.04);
+                    }
                     break;
                 case 'pacman':
                     if (this.pac) {
@@ -498,7 +567,7 @@
         updateDead() {
             if (!this.bits) {
                 this.bits = []; clearMyBullets();
-                this.minions = null; this.ufo = null; this.bunkers = []; this.beams = []; this.pac = null; this.atk = null; this.msg = null; this.tag = null;
+                this.minions = null; this.ufo = null; this.bunkers = []; this.beams = []; this.tractor = null; this.pac = null; this.atk = null; this.msg = null; this.tag = null;
                 ROWS.crab[this.frame].forEach((row, r) => { for (let c = 0; c < 11; c++) if (row[c] === '#') this.bits.push({ x: this.x + c * this.u, y: this.y + r * this.u, vx: (c - 5) * 0.55 + rnd(-1, 1), vy: rnd(-5, 0), a: 1 }); });
             }
             this.deadT++;
@@ -525,6 +594,14 @@
                     ctx.fillStyle = '#9cf'; ctx.fillRect(L.x - 6, this.bottom, 12, H - this.bottom); ctx.shadowBlur = 0;
                 }
             });
+            if (this.tractor && this.tractor.t > 8) {          // rayo tractor de Galaga
+                const T = this.tractor, on = T.t > 50, f = on ? 0.4 + 0.25 * Math.sin(T.t * 0.6) : 0.15 + 0.1 * Math.sin(T.t * 0.8);
+                ctx.save(); ctx.globalAlpha = Math.min(1, T.t / 15) * f; ctx.fillStyle = on ? '#8ad0ff' : '#ffffff';
+                ctx.beginPath(); ctx.moveTo(T.x - 20, this.bottom); ctx.lineTo(T.x + 20, this.bottom); ctx.lineTo(T.x + 78, H); ctx.lineTo(T.x - 78, H); ctx.closePath(); ctx.fill();
+                ctx.globalAlpha = Math.min(1, T.t / 15) * (on ? 0.7 : 0.3); ctx.fillStyle = '#fff';
+                for (let k = 0; k < 6; k++) { const yy = this.bottom + ((T.t * 3 + k * 70) % (H - this.bottom)), hw2 = 20 + (yy - this.bottom) / (H - this.bottom) * 58; ctx.fillRect(T.x - hw2, yy, hw2 * 2, 2); }
+                ctx.restore();
+            }
             if (this.pac) {
                 const P = this.pac;
                 if (this.atk && this.atk.id === 'pacman' || P.x > -100) {
