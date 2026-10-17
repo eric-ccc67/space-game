@@ -2,16 +2,23 @@
 //  choque.js  ·  CHOQUE DE PODERES (estilo Dragon Ball Z: Budokai Tenkaichi 3) + DROPS DE JEFE
 // ------------------------------------------------------------------------------------------
 //  1) CHOQUE DE PODERES: cuando la vida de un JEFE FINAL (los 7 de los niveles + el INVASOR) llega a 0,
-//     el jefe dice que no se rinde y el juego se congela: la nave y el jefe disparan sus rayos de frente. Hay que
-//     MARTILLEAR el botón de DISPARO (Espacio / botón A / clic) para empujar el choque hacia el
-//     jefe. Si lo logras, tu rayo lo arrasa y cae. Si no, te golpea, el jefe se recupera un poco
-//     y tendrás una revancha cuando vuelvas a vaciarle la barra.
-//     Cada jefe tiene su propio rayo, colores, decorado de fondo, partículas y frases.
+//     el jefe no se rinde y empieza una pequeña CINEMÁTICA con cámara:
+//        a) ONDA DE CHOQUE: el jefe estalla en energía y tu nave sale despedida hacia atrás.
+//        b) La cámara se ACERCA a tu nave mientras reúne su poder (anillos que convergen, orbe que crece).
+//        c) La cámara VIAJA hasta el jefe, que también reúne el suyo (con el nombre de su ataque).
+//        d) La cámara se ALEJA y los dos GRITAN a la vez → los rayos chocan.
+//     Luego viene el PULSO: hay que MARTILLEAR el botón de DISPARO (Espacio / clic) para empujar el choque
+//     hacia el jefe. En el móvil aparece un BOTÓN GRANDE "¡MACHACA!" solo durante esta parte.
+//     Si ganas, TU RAYO ATRAVIESA TODA LA PANTALLA (de abajo hasta arriba, sin cortarse) y el jefe cae.
+//     Si no, su rayo te atraviesa, el jefe se recupera un poco y tendrás una revancha (más corta).
+//     DIFICULTAD: cada jefe empuja un poco más fuerte que el anterior, y más aún en Difícil / Lunático.
+//     La pantalla muestra una META de toques/s (calculada para que NUNCA sea imposible).
 //  2) DROPS: mientras un jefe final está activo, cada ~3.5 s tira un dado con 47.6 % de soltar
 //     un power-up (con preferencia por los que ayudan a matarlo más rápido).
 //  Se carga DESPUÉS de invasor.js. Engancha Extras.takeover / busy / afterFrame / onRunStart.
-//  Ajustes rápidos: TRIGGER, PUSH, DRIFT, TIME_LIMIT, DROP_CHANCE, DROP_EVERY (abajo).
-//  Consola:  Choque.dev.start()  (fuerza el choque contra el jefe actual)
+//  Ajustes rápidos: PRELUDE, PUSH, DRIFT, BOSS_STEP, TIME_LIMIT, DROP_CHANCE, DROP_EVERY (abajo).
+//  Consola:  Choque.dev.start()   (fuerza el choque contra el jefe actual)
+//            Choque.need()        (tabla de toques/s que pide cada jefe en cada dificultad)
 // ==========================================================================================
 (function () {
     'use strict';
@@ -21,14 +28,21 @@
     const MAX_CLASHES = 2;                  // choque final + 1 revancha si lo pierdes
     const TIME_LIMIT = 840;                 // cuadros (~14 s) que dura el pulso como máximo
     const PUSH = 0.034;                     // cuánto empuja cada toque de disparo (0..1 de la distancia)
-    const DRIFT = { facil: 0.070, medio: 0.100, dificil: 0.105, lunatico: 0.115 };   // empuje del jefe (por segundo)
-const MOBILE_EASE = 0.8;                // en teléfono el jefe empuja 20 % menos (tocar rápido en pantalla es más difícil)
-const HOLD_PUSH = 0.0010;               // mantener pulsado DISPARO (o AUTO) también empuja un poco, por cuadro
-const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.35)
+    // Empuje del jefe (fracción de la distancia por segundo). Sube con la DIFICULTAD y, además, con cada JEFE (0..7):
+    //   empuje = DRIFT[dificultad] + BOSS_STEP[dificultad] * número_de_jefe
+    const DRIFT = { facil: 0.070, medio: 0.100, dificil: 0.125, lunatico: 0.150 };
+    const BOSS_STEP = { facil: 0.004, medio: 0.006, dificil: 0.008, lunatico: 0.010 };
+    const MOBILE_EASE = 0.8;                // en teléfono el jefe empuja 20 % menos (tocar rápido en pantalla es más difícil)
+    const HOLD_PUSH = 0.0010;               // (solo teclado) mantener ESPACIO también empuja un poco, por cuadro
+    const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.35)
+    const SURGE_AVG = 0.033;                // empuje medio extra de las "embestidas" (solo para calcular la META)
+    // Duración (en cuadros, 60 = 1 s) de cada parte de la cinemática de entrada. En la revancha dura un 35 % menos.
+    const PRELUDE = { knock: 48, pcharge: 84, pan: 46, bcharge: 84, pull: 36, roar: 46 };
     const DROP_CHANCE = 0.476;              // 47.6 % de soltar power-up...
     const DROP_EVERY = 210;                 // ...cada vez que pasan estos cuadros (~3.5 s) con el jefe activo
     const DROP_MAX_ON_SCREEN = 3;
     const WIN_BONUS = 3000;
+
 
     // ---------------------------------------------------------------------- utilidades
     const TAU = Math.PI * 2;
@@ -230,7 +244,6 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
             for (let i = 0; i < 5; i++) { const a = rr(0, TAU), L = r * rr(1.6, 3); ctx.strokeStyle = i % 2 ? S.cfg.c2 : HERO.c2; ctx.beginPath(); ctx.moveTo(x, y); for (let k = 1; k <= 4; k++) ctx.lineTo(x + Math.cos(a) * L * k / 4 + rr(-7, 7), y + Math.sin(a) * L * k / 4 + rr(-7, 7)); ctx.stroke(); }
             ctx.restore();
         }
-        S.rings.forEach(g => { ctx.save(); ctx.globalAlpha = g.a; ctx.strokeStyle = g.col; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(g.x, g.y, g.r, g.r * 0.45, 0, 0, TAU); ctx.stroke(); ctx.restore(); });
     }
 
     // ---------------------------------------------------------------------- fondos propios de cada jefe
@@ -273,9 +286,27 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
         }
     };
 
+
     // ---------------------------------------------------------------------- lógica
     const go = ph => { ST.ph = ph; ST.pt = 0; };
+    const PRE_PHASES = ['knock', 'pcharge', 'pan', 'bcharge', 'pull', 'roar'];
+    const isPre = S => PRE_PHASES.indexOf(S.ph) >= 0;
+    const durOf = (S, k) => Math.max(12, Math.round(PRELUDE[k] * S.sp));
+    // Grito del jefe (uno por jefe) y del jugador, en el momento en que los dos rayos salen a la vez
+    const SHOUT_B = ['¡¡KYAAAAAN!!', '¡¡GRAAAAAAH!!', '¡¡SHHRAAAAAH!!', '¡¡KSSHAAAAAA!!', '¡¡ARRRRRGH!!', '¡¡TIK-TAK... BOOM!!', '¡¡AAAAAARGH!!', '¡¡GAME OVEEEER!!'];
+    const SHOUT_P = '¡¡HAAAAAAAAH!!';
     function recentRate() { const S = ST, lim = S.t - 60; while (S.hist.length && S.hist[0] < lim) S.hist.shift(); return S.hist.length; }
+
+    // Empuje del jefe por cuadro: sube con la DIFICULTAD y con el NÚMERO DE JEFE (idx 0..7)
+    function driftFrame(diff, idx, attempt, mobile) {
+        const dd = (DRIFT[diff] || 0.1) + idx * (BOSS_STEP[diff] || 0.006);
+        return dd / 60 * (attempt ? 1.05 : 1) * (mobile ? MOBILE_EASE : 1);
+    }
+    // META de toques/s para ganar en unos 8 s con el bonus ¡SUPER! (se calcula del empuje, así nunca es imposible)
+    function goalFor(diff, idx, attempt, mobile) {
+        const dps = driftFrame(diff, idx, attempt, mobile) * 60 + SURGE_AVG;
+        return clamp(Math.ceil((dps + 0.056) / (PUSH * 1.35)), SUPER_RATE, 12);
+    }
 
     function start(b) {
         const idx = clamp(b.levelIdx | 0, 0, 7), attempt = b._clashN | 0;
@@ -283,8 +314,13 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
         // rompía ese bucle (bullets[i] undefined -> TypeError -> el juego se congelaba). Se limpian en el primer cuadro del choque.
         parts.length = 0;
         invulnerableUntil = 0;
-        ST = { boss: b, cfg: CFG[idx], idx, attempt, t: 0, pt: 0, ph: 'charge', pos: 0.5, posDraw: 0.5, taps: 0, hist: [], rate: 0, surge: 0, nextSurge: 90,
-               shake: 0, flash: 0, dark: 0, kick: 0, rings: [], bx0: b.x, px0: player.x, timeLeft: TIME_LIMIT, say: '', sayT: 0, hp0: b.hp, eP: 0, eB: 0, white: 0, pre: 0, clean: true };
+        b._ab = null; b._abShow = false; b._alpha = 1;                 // sin rótulos / transparencias a medias del jefe
+        try { if (window.BossEvents && BossEvents.cancelAll) BossEvents.cancelAll(); } catch (e) {}   // eventos_jefes.js: cancela el evento en curso
+        ST = { boss: b, cfg: CFG[idx], idx, attempt, sp: attempt ? 0.65 : 1, t: 0, pt: 0, ph: 'knock', pos: 0.5, posDraw: 0.5, taps: 0, hist: [], rate: 0, surge: 0, nextSurge: 90,
+               shake: 0, flash: 0, dark: 0, kick: 0, rings: [], bx0: b.x, px0: player.x, py0: player.y, pyEnd: H() - player.height - 6,
+               timeLeft: TIME_LIMIT, say: '', sayT: 0, hp0: b.hp, eW: 0, eL: 0, white: 0, cP: 0, cB: 0, grow: 0, bar: 0, goal: 0,
+               cam: { fx: W() / 2, fy: H() / 2, s: 1 }, clean: true };
+        ST.goal = goalFor(currentDiff, idx, attempt, isMobile());
         b._clashN = attempt + 1;
         tone(80, 420, 0.8, 'sawtooth', 0.06);
     }
@@ -308,7 +344,8 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
 
     function finishWin() {
         const S = ST, b = S.boss;
-        b.hp = 0; b._clashDone = true; ST = null; parts.length = 0;
+        b.hp = 0; b._clashDone = true; ST = null; parts.length = 0; hideBtn();
+        player.bankAngle = 0;
         score += WIN_BONUS;
         post = 1; postCol = '#fff';
         invulnerableUntil = Date.now() + 2500;
@@ -316,7 +353,8 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
     }
     function finishLose() {
         const S = ST, b = S.boss;
-        b._clashDone = (S.attempt + 1) >= MAX_CLASHES; ST = null; parts.length = 0;
+        b._clashDone = (S.attempt + 1) >= MAX_CLASHES; ST = null; parts.length = 0; hideBtn();
+        player.bankAngle = 0;
         const shielded = powerUps.shield > Date.now();
         if (shielded) { powerUps.shield = 0; createExplosion(player.x + player.width / 2, player.y + player.height / 2, '#0ff', 20); }
         else { createExplosion(player.x + player.width / 2, player.y + player.height / 2, player.color || '#0ff', 40); lives -= shipHitDamage(); powerPoints = Math.max(0, powerPoints - 50); }
@@ -325,7 +363,30 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
         post = 0.8; postCol = S.cfg.c1; screenShake = Math.max(screenShake, 30);
         if (lives <= 0) gameOver();
     }
-    function abort() { if (ST) { ST.boss._clashDone = true; ST = null; } parts.length = 0; }
+    function abort() { if (ST) { ST.boss._clashDone = true; ST = null; } parts.length = 0; hideBtn(); try { player.bankAngle = 0; } catch (e) {} }
+
+    // ---------------------------------------------------------------------- cámara
+    // Objetivo de la cámara en cada parte de la cinemática: acercarse a la nave → viajar al jefe → alejarse.
+    function camTarget(S) {
+        const w = W(), h = H(), b = S.boss, cx = w / 2, cy = h / 2, ph = S.ph;
+        const Py = S.pyEnd + player.height * 0.2, By = b.y + b.height * 0.62;
+        let fy = cy, s = 1;
+        if (ph === 'knock') { const u = sstep(0, 1, S.pt / durOf(S, 'knock')); fy = lerp(cy, (Py + cy) / 2, u); s = lerp(1, 1.12, u); }
+        else if (ph === 'pcharge') { const v = clamp(S.pt / durOf(S, 'pcharge'), 0, 1), u = sstep(0, 0.45, v); fy = lerp((Py + cy) / 2, Py, u); s = lerp(1.12, 2.3, u) + 0.2 * v; }
+        else if (ph === 'pan') { const u = sstep(0, 1, S.pt / durOf(S, 'pan')); fy = lerp(Py, By, u); s = lerp(2.5, 2.2, u) - 0.8 * Math.sin(Math.PI * u); }
+        else if (ph === 'bcharge') { const u = sstep(0, 1, S.pt / durOf(S, 'bcharge')); fy = By; s = lerp(2.2, 2.65, u); }
+        else if (ph === 'pull') { const u = sstep(0, 1, S.pt / durOf(S, 'pull')); fy = lerp(By, cy, u); s = lerp(2.65, 1, u); }
+        const hs = h / (2 * s), ws = w / (2 * s);                  // la cámara nunca se sale del escenario
+        return { fx: clamp(cx, ws, w - ws), fy: clamp(fy, hs, h - hs), s };
+    }
+    function updateCam(S) {
+        const t = camTarget(S), c = S.cam, k = 0.28;                // suavizado extra: movimiento fluido
+        c.fx += (t.fx - c.fx) * k; c.fy += (t.fy - c.fy) * k; c.s += (t.s - c.s) * k;
+        if (!isFinite(c.s) || !isFinite(c.fx) || !isFinite(c.fy)) { c.fx = W() / 2; c.fy = H() / 2; c.s = 1; }
+    }
+    function gather(x, y, R, col, n) {                              // chispas que viajan hacia el orbe (reunir energía)
+        for (let i = 0; i < n; i++) { const a = rr(0, TAU), d = R * 3 + 40 + rr(0, 30); emit({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, vx: -Math.cos(a) * d / 16, vy: -Math.sin(a) * d / 16, drag: 1, life: 16, kind: 'spark', col, size: 3 }); }
+    }
 
     function step() {
         const S = ST, b = S.boss, cfg = S.cfg;
@@ -339,18 +400,73 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
         S.dark = Math.min(1, S.dark + 0.04); S.kick *= 0.82;
         if (S.flash > 0) S.flash = Math.max(0, S.flash - 0.04);
         if (S.sayT > 0) S.sayT--;
-        S.rings.forEach(g => { g.r += 5; g.a -= 0.035; }); S.rings = S.rings.filter(g => g.a > 0);
-        const g = geo(S);
+        S.rings.forEach(g => { g.r += 5; g.a -= 0.035; if (g.vy) g.y += g.vy; }); S.rings = S.rings.filter(g => g.a > 0);
+        let g = geo(S);
         switch (S.ph) {
-            case 'charge': {
-                const k = eOut(clamp(S.pt / 45, 0, 1));
-                if (S.pt < 60 && S.pt % 7 === 0) S.shake = Math.max(S.shake, 6);   // el jefe se levanta tambaleándose
-                b.x = lerp(S.bx0, W() / 2 - b.width / 2, k); player.x = lerp(S.px0, W() / 2 - player.width / 2, k);
-                const gg = geo(S), R = 8 + sstep(30, 100, S.pt) * 26;
-                if (S.pt % 12 === 0) tone(120 + S.pt * 6, 200 + S.pt * 9, 0.18, 'sawtooth', 0.035);
-                if (S.pt % 2 === 0) [[gg.cx, gg.bY, S.cfg.c2], [gg.cx, gg.pY, HERO.c2]].forEach(o => { const a = rr(0, TAU), d = R * 3 + 30; emit({ x: o[0] + Math.cos(a) * d, y: o[1] + Math.sin(a) * d, vx: -Math.cos(a) * d / 16, vy: -Math.sin(a) * d / 16, drag: 1, life: 16, kind: 'spark', col: o[2], size: 3 }); });
-                S.shake = Math.max(S.shake, sstep(10, 100, S.pt) * 5);
-                if (S.pt >= 100) { go('fire'); S.shake = 18; S.flash = 0.8; tone(200, 40, 0.7, 'sawtooth', 0.08); tone(900, 300, 0.4, 'square', 0.05); }
+            case 'knock': {                  // 1) estallido del jefe: la nave sale despedida hacia atrás
+                const D = durOf(S, 'knock'), k = clamp(S.pt / D, 0, 1), e = eOut(k);
+                b.x = lerp(S.bx0, W() / 2 - b.width / 2, eOut(clamp(S.pt / (D * 0.8), 0, 1)));
+                player.x = lerp(S.px0, W() / 2 - player.width / 2, e); player.y = lerp(S.py0, S.pyEnd, e);
+                player.bankAngle = Math.sin(k * Math.PI * 3) * 0.6 * (1 - k); player.thrust = 1;     // gira al salir despedida
+                g = geo(S);
+                if (S.pt === 1) {
+                    S.flash = 1; S.shake = 34; burst(g.cx, g.bY, 46, 3, 13, { col: pick([cfg.c2, '#fff']) }); styleBurst(S, g.cx, g.bY, 18);
+                    S.rings.push({ x: g.cx, y: g.bY, r: 10, a: 1, col: '#fff' }, { x: g.cx, y: g.bY, r: 4, a: 1, col: cfg.c2 });
+                    tone(70, 520, 0.7, 'sawtooth', 0.09); tone(1000, 120, 0.5, 'square', 0.05);
+                }
+                if (S.pt === 1 || S.pt === 9 || S.pt === 17) S.rings.push({ x: g.cx, y: g.bY + 10, r: 14, a: 0.9, col: cfg.c2, vy: 9 });   // onda de choque que baja hacia la nave
+                if (S.pt < D && S.pt % 2 === 0) emit({ x: player.x + 15 + rr(-8, 8), y: player.y + rr(0, 26), vx: rr(-0.8, 0.8), vy: rr(-1.4, 0.2), drag: 0.96, life: 24, kind: 'spark', col: pick([HERO.c2, '#fff']), size: 3 });
+                S.shake = Math.max(S.shake, 10 * (1 - k));
+                if (S.pt >= D) { player.bankAngle = 0; go('pcharge'); }
+                break;
+            }
+            case 'pcharge': {                // 2) la cámara se acerca a TU nave: reúne su poder
+                const D = durOf(S, 'pcharge'), v = clamp(S.pt / D, 0, 1);
+                b.x = W() / 2 - b.width / 2; player.x = W() / 2 - player.width / 2; player.y = S.pyEnd; player.bankAngle *= 0.8;
+                S.cP = sstep(0, 1, v); const R = 6 + S.cP * 30;
+                if (S.pt % 2 === 0) gather(g.cx, g.pY - 6, R, HERO.c2, 1);
+                if (S.pt % 9 === 0) tone(150 + S.pt * 5, 230 + S.pt * 9, 0.18, 'sawtooth', 0.035);
+                S.shake = Math.max(S.shake, v * 4);
+                if (S.pt >= D) go('pan');
+                break;
+            }
+            case 'pan': {                    // 3) la cámara viaja hasta el jefe
+                const D = durOf(S, 'pan'); S.cP = 1;
+                if (S.pt === 1) tone(260, 900, 0.5, 'triangle', 0.05);
+                if (S.pt % 3 === 0) gather(g.cx, g.pY - 6, 36, HERO.c2, 1);
+                S.shake = Math.max(S.shake, 3);
+                if (S.pt >= D) go('bcharge');
+                break;
+            }
+            case 'bcharge': {                // 4) el jefe reúne el suyo (con el nombre de su ataque)
+                const D = durOf(S, 'bcharge'), v = clamp(S.pt / D, 0, 1);
+                S.cB = sstep(0, 1, v); const R = 6 + S.cB * 30;
+                if (S.pt % 2 === 0) gather(g.cx, g.bY, R, cfg.c2, 1);
+                if (S.pt % 3 === 0) styleBurst(S, g.cx + rr(-30, 30), g.bY + rr(-10, 10), 1);
+                if (S.pt === 1) tone(400, 100, 0.4, 'square', 0.04);
+                if (S.pt % 9 === 0) tone(90 + S.pt * 4, 150 + S.pt * 7, 0.2, 'sawtooth', 0.04);
+                S.shake = Math.max(S.shake, 2 + v * 6);
+                if (S.pt >= D) go('pull');
+                break;
+            }
+            case 'pull': {                   // 5) la cámara se aleja y se ve a los dos
+                const D = durOf(S, 'pull'); S.cP = S.cB = 1;
+                S.shake = Math.max(S.shake, 6 + sstep(0, 1, S.pt / D) * 8);
+                if (S.pt % 2 === 0) { gather(g.cx, g.bY, 36, cfg.c2, 1); gather(g.cx, g.pY - 6, 36, HERO.c2, 1); }
+                if (S.pt % 6 === 0) tone(200 + S.pt * 12, 320 + S.pt * 18, 0.12, 'square', 0.03);
+                if (S.pt >= D) go('roar');
+                break;
+            }
+            case 'roar': {                   // 6) los dos GRITAN a la vez
+                const D = durOf(S, 'roar'), v = clamp(S.pt / D, 0, 1);
+                S.cP = S.cB = 1; S.grow = sstep(0, 0.6, v);
+                if (S.pt === 1) {
+                    S.flash = 1; S.shake = 32; tone(120, 40, 0.9, 'sawtooth', 0.1); tone(800, 220, 0.6, 'square', 0.05);
+                    S.rings.push({ x: g.cx, y: g.bY, r: 10, a: 1, col: cfg.c2 }, { x: g.cx, y: g.pY, r: 10, a: 1, col: HERO.c2 });
+                }
+                S.shake = Math.max(S.shake, 12);
+                if (S.pt % 3 === 0) { burst(g.cx, g.bY, 4, 3, 9, { col: cfg.c2 }); burst(g.cx, g.pY, 4, 3, 9, { col: HERO.c2 }); }
+                if (S.pt >= D) { go('fire'); S.shake = 18; S.flash = 0.8; tone(200, 40, 0.7, 'sawtooth', 0.08); tone(900, 300, 0.4, 'square', 0.05); }
                 break;
             }
             case 'fire':
@@ -360,8 +476,8 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
                 break;
             case 'struggle': {
                 S.timeLeft--; S.rate = recentRate();
-                let d = ((DRIFT[currentDiff] || 0.1) + S.idx * 0.004) / 60 * (S.attempt ? 1.05 : 1) * (isMobile() ? MOBILE_EASE : 1);
-                try { if (keys['Space']) d -= HOLD_PUSH; } catch (e) {}
+                let d = driftFrame(currentDiff, S.idx, S.attempt, isMobile());
+                try { if (!isMobile() && keys['Space']) d -= HOLD_PUSH; } catch (e) {}
                 if (S.surge > 0) { S.surge--; d += 0.0045; }
                 else if (--S.nextSurge <= 0) { S.surge = 14; S.nextSurge = 80 + (Math.random() * 60 | 0); S.shake = 16; S.flash = 0.35; S.say = '¡EMBESTIDA!'; S.sayT = 26; tone(70, 35, 0.4, 'sawtooth', 0.07); }
                 S.pos = clamp(S.pos + d, 0, 1);
@@ -372,65 +488,120 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
                 else if (S.timeLeft <= 0) { go('win'); S.hp0 = b.hp; S.say = cfg.win; S.sayT = 200; tone(100, 900, 1.0, 'sawtooth', 0.08); }
                 break;
             }
-            case 'win':
-                S.pos += (0 - S.pos) * 0.15; S.eP = sstep(10, 60, S.pt); S.eB = S.eP;
+            case 'win':                      // TU rayo crece, atraviesa al jefe y sale por arriba de la pantalla
+                S.pos += (0 - S.pos) * 0.15; S.eW = sstep(8, 48, S.pt);
                 b.hp = Math.max(0.0001, lerp(S.hp0, 0.0001, sstep(20, 80, S.pt)));
-                S.shake = Math.max(S.shake, 22); S.white = sstep(66, 98, S.pt);
+                S.shake = Math.max(S.shake, 22); S.white = sstep(74, 108, S.pt);
                 if (S.pt % 3 === 0) { burst(b.x + rr(0, b.width), b.y + rr(0, b.height), 6, 3, 9, { col: pick([cfg.c2, '#fff']) }); styleBurst(S, b.x + b.width / 2, b.y + b.height / 2, 3); }
-                if (S.pt === 20 || S.pt === 50) tone(150, 700, 0.35, 'sawtooth', 0.07);
-                if (S.pt >= 100) finishWin();
+                if (S.pt >= 14 && S.pt % 4 === 0) emit({ x: g.cx + rr(-30, 30), y: rr(0, H()), vx: rr(-1, 1), vy: -rr(6, 12), drag: 1, life: 22, kind: 'spark', col: pick([HERO.c2, '#fff']), size: 3 });   // chispas que suben por el rayo
+                if (S.pt === 8 || S.pt === 30) tone(150, 700, 0.35, 'sawtooth', 0.07);
+                if (S.pt >= 116) finishWin();
                 break;
-            case 'lose':
-                S.pos += (1 - S.pos) * 0.15; S.eB = sstep(10, 55, S.pt); S.shake = Math.max(S.shake, 20);
-                if (S.pt === 40) { burst(g.cx, g.pY, 40, 3, 11, { col: pick([cfg.c1, '#fff']) }); tone(200, 30, 0.7, 'sawtooth', 0.09); }
-                if (S.pt >= 40 && S.pt % 3 === 0) styleBurst(S, g.cx, g.pY, 3);
-                S.white = sstep(70, 92, S.pt) * 0.9;
-                if (S.pt >= 96) finishLose();
+            case 'lose':                     // el rayo del jefe te atraviesa y sale por abajo
+                S.pos += (1 - S.pos) * 0.15; S.eL = sstep(8, 48, S.pt); S.shake = Math.max(S.shake, 20);
+                if (S.pt === 44) { burst(g.cx, g.pY, 40, 3, 11, { col: pick([cfg.c1, '#fff']) }); tone(200, 30, 0.7, 'sawtooth', 0.09); }
+                if (S.pt >= 44 && S.pt % 3 === 0) styleBurst(S, g.cx, g.pY, 3);
+                S.white = sstep(70, 98, S.pt) * 0.9;
+                if (S.pt >= 104) finishLose();
                 break;
         }
+        updateCam(S);
         stepParts();
     }
 
     // ---------------------------------------------------------------------- dibujo de cada cuadro
+    // Dibuja al jefe SIN su barra de vida mientras la cámara se acerca (la barra no debe agrandarse ni moverse con el zoom).
+    function drawBossQuiet(b, hideBar) {
+        if (!hideBar) { b.draw(currentEnemyFrame); return; }
+        const oldBar = window.drawBossHealthBar; let own = false;
+        window.drawBossHealthBar = function () {};
+        if (typeof b.drawBar === 'function' && !Object.prototype.hasOwnProperty.call(b, 'drawBar')) { b.drawBar = function () {}; own = true; }   // el Invasor dibuja la suya
+        try { b.draw(currentEnemyFrame); } finally { window.drawBossHealthBar = oldBar; if (own) delete b.drawBar; }
+    }
+    // Anillos que se cierran sobre el orbe + aura: "reuniendo energía"
+    function chargeFx(x, y, R, pal, c, t) {
+        if (c <= 0.01) return;
+        for (let k = 0; k < 3; k++) {
+            const ph = ((t * 0.035 + k / 3) % 1), r = lerp(R * 5.2, R * 1.1, ph);
+            ctx.save(); ctx.globalAlpha = (1 - ph) * 0.85 * c; ctx.strokeStyle = k % 2 ? pal.c2 : pal.c1; ctx.lineWidth = 2 + (1 - ph) * 3;
+            ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke(); ctx.restore();
+        }
+        glow(x, y, R * 6, pal.c1, 0.22 * c);
+    }
+    function drawRings(S) {
+        S.rings.forEach(g => { ctx.save(); ctx.globalAlpha = clamp(g.a, 0, 1); ctx.strokeStyle = g.col; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(g.x, g.y, g.r, g.r * 0.45, 0, 0, TAU); ctx.stroke(); ctx.restore(); });
+    }
+    function speedLines(w, h, a, col, t) {                      // líneas de velocidad hacia el centro
+        if (a <= 0.02) return;
+        ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = col; ctx.lineWidth = 2;
+        const n = lite() ? 14 : 30, cx = w / 2, cy = h / 2, R = Math.hypot(w, h) / 2;
+        for (let i = 0; i < n; i++) {
+            const an = i / n * TAU + Math.sin(t * 0.9 + i) * 0.03, r0 = R * (0.35 + 0.25 * ((i * 37) % 10) / 10), r1 = R * 1.05;
+            ctx.beginPath(); ctx.moveTo(cx + Math.cos(an) * r0, cy + Math.sin(an) * r0); ctx.lineTo(cx + Math.cos(an) * r1, cy + Math.sin(an) * r1); ctx.stroke();
+        }
+        ctx.restore();
+    }
+
     function render() {
-        const S = ST, b = S.boss, cfg = S.cfg, t = S.t, w = W(), h = H(), g = geo(S);
+        const S = ST, b = S.boss, cfg = S.cfg, t = S.t, w = W(), h = H(), g = geo(S), pre = isPre(S), C = S.cam;
         ctx.save(); ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip();
         if (S.shake > 0.5) { ctx.translate(rr(-S.shake, S.shake) * 0.5, rr(-S.shake, S.shake) * 0.5); S.shake *= 0.88; }
+
+        // ================= MUNDO (con la cámara que se acerca / viaja / se aleja)
+        ctx.save(); ctx.translate(w / 2, h / 2); ctx.scale(C.s, C.s); ctx.translate(-C.fx, -C.fy);
         if (currentMode !== 'clasico') drawThemeBackground(); else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); }
         wash('#000', 0.45 * S.dark);
         if (BACK[cfg.style]) BACK[cfg.style](S, t);
-        b.draw(currentEnemyFrame);
+        drawBossQuiet(b, pre || C.s > 1.02);
 
-        // rayos
         const base = clamp(w * 0.11, 30, 64);
-        if (S.ph !== 'charge') {
+        if (pre) {                                                // reuniendo energía: dos orbes que crecen
+            const gr = S.grow * 10, Rb = 6 + S.cB * 30 + gr, Rp = 6 + S.cP * 30 + gr;
+            if (S.ph === 'knock') glow(g.cx, g.bY, 130, cfg.c1, 0.7 * (1 - S.pt / durOf(S, 'knock')));
+            chargeFx(g.cx, g.bY, Rb, cfg, S.cB, t); chargeFx(g.cx, g.pY - 6, Rp, HERO, S.cP, t);
+            if (S.cB > 0.01) orb(g.cx, g.bY, Rb, cfg);
+            if (S.cP > 0.01) orb(g.cx, g.pY - 6, Rp, HERO);
+        } else {
             const kf = S.ph === 'fire' ? eOut(clamp(S.pt / 40, 0, 1)) : 1, cy = S.ph === 'fire' ? lerp(g.bY, g.pY, 0.5) : g.cy;
-            const wB = base * (0.55 + S.posDraw) * (1 - S.eB * 0.9) * (S.ph === 'lose' ? 1 + S.eB * 2.2 : 1);
-            const wP = base * (0.55 + (1 - S.posDraw)) * (1 + S.eP * 2.6) * (S.ph === 'lose' ? 1 - S.eB * 0.9 : 1);
-            drawBeam(g.cx, g.bY, lerp(g.bY, cy, kf), Math.max(2, wB), cfg, cfg.style, t, 0, true);
-            drawBeam(g.cx, g.pY, lerp(g.pY, cy, kf), Math.max(2, wP), HERO, 'hero', t, 2, false);
-            if (S.ph !== 'fire' || S.pt > 30) drawSphere(S, g.cx, S.ph === 'fire' ? cy : g.cy);
-        } else {                                                  // cargando: dos orbes que crecen
-            const R = 8 + sstep(30, 100, S.pt) * 26;
-            orb(g.cx, g.bY, R, cfg); orb(g.cx, g.pY - 4, R, HERO);
+            const wB = base * (0.55 + S.posDraw) * (1 - S.eW * 0.9) * (1 + S.eL * 2.2);
+            const wP = base * (0.55 + (1 - S.posDraw)) * (1 + S.eW * 2.6) * (1 - S.eL * 0.9);
+            // GANAR: tu rayo sigue de largo, atraviesa al jefe y sale por ARRIBA, sin cortarse. PERDER: el del jefe sale por ABAJO.
+            const yEndP = lerp(lerp(g.pY, cy, kf), -110, S.eW), yEndB = lerp(lerp(g.bY, cy, kf), h + 110, S.eL);
+            drawBeam(g.cx, g.bY, yEndB, Math.max(2, wB), cfg, cfg.style, t, 0, true);
+            drawBeam(g.cx, g.pY, yEndP, Math.max(2, wP), HERO, 'hero', t, 2, false);
+            if (S.ph === 'fire' && kf < 0.95) { const Ro = 46 * (1 - kf) + 12; orb(g.cx, g.bY, Ro, cfg); orb(g.cx, g.pY - 6, Ro, HERO); }
+            if (S.eW > 0.02) { if (yEndP > -70) orb(g.cx, yEndP, 26 + 12 * S.eW, HERO); }
+            else if (S.eL > 0.02) { if (yEndB < h + 70) orb(g.cx, yEndB, 26 + 12 * S.eL, cfg); }
+            else if (S.ph !== 'fire' || S.pt > 30) drawSphere(S, g.cx, S.ph === 'fire' ? cy : g.cy);
         }
         try { player.draw(); } catch (e) {}
+        drawRings(S);
         drawParts();
+        ctx.restore();
 
-        // fogonazos
+        // ================= PANTALLA (sin cámara)
         if (S.flash > 0.01) wash('#fff', S.flash * 0.7);
         if (S.white > 0.01) wash(S.ph === 'lose' ? cfg.c1 : '#fff', S.white);
-        vignette(0.5, cfg.style === 'blood' ? 'rgba(60,0,10,1)' : 'rgba(0,0,0,1)');
+        vignette(0.5 + 0.3 * clamp((C.s - 1) / 1.5, 0, 1), cfg.style === 'blood' ? 'rgba(60,0,10,1)' : 'rgba(0,0,0,1)');
+        if (S.ph === 'pull') speedLines(w, h, 0.35 * sstep(0, 1, S.pt / durOf(S, 'pull')), '#fff', t);
+        if (S.ph === 'roar') speedLines(w, h, 0.55, S.pt % 4 < 2 ? cfg.c2 : HERO.c2, t);
 
-        // barras de cine
-        const bar = Math.round(h * 0.07 * sstep(0, 12, S.t)); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, bar); ctx.fillRect(0, h - bar, w, bar);
+        // barras de cine (más gruesas durante la cinemática)
+        S.bar += ((pre ? 0.105 : 0.07) * h - S.bar) * 0.12; const bar = Math.round(S.bar);
+        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, bar); ctx.fillRect(0, h - bar, w, bar);
 
         // textos
         const fs = clamp(w * 0.05, 12, 24);
-        if (S.ph === 'charge') {
-            const n1 = Math.floor(S.pt * 0.9);
-            if (S.pt > 8) txt(cfg.taunt.slice(0, n1), w / 2, h * 0.36, fs * 0.78, cfg.c2, cfg.c1, 'center', sstep(8, 18, S.pt));
-            if (S.pt > 52) txt(cfg.reply.slice(0, Math.floor((S.pt - 52) * 0.8)), w / 2, h * 0.58, fs * 0.78, HERO.c2, HERO.c1, 'center', sstep(52, 62, S.pt));
+        if (S.ph === 'knock' && S.pt > 4) txt(cfg.taunt.slice(0, Math.floor(S.pt * 1.15 / S.sp)), w / 2, h * 0.3, fs * 0.78, cfg.c2, cfg.c1, 'center', sstep(4, 12, S.pt));
+        if (S.ph === 'pcharge') {
+            txt(cfg.reply.slice(0, Math.floor(S.pt * 0.9 / S.sp)), w / 2, h * 0.3, fs * 0.85, HERO.c2, HERO.c1, 'center', sstep(0, 8, S.pt));
+            txt('— ' + cfg.hero + ' —', w / 2, h * 0.38, fs * 0.55, '#fff', HERO.c1, 'center', sstep(24, 36, S.pt));
+        }
+        if (S.ph === 'bcharge') { const D = durOf(S, 'bcharge'); txt(cfg.atk, w / 2, h * 0.32, fs * 0.62, cfg.c2, cfg.c1, 'center', sstep(6, 18, S.pt) * (1 - sstep(D - 12, D, S.pt))); }
+        if (S.ph === 'roar') {
+            const sc = 1 + Math.sin(S.pt * 1.3) * 0.06, v = sstep(0, 8, S.pt);
+            txt(SHOUT_B[S.idx] || '¡¡GRAAAAH!!', w / 2 + rr(-3, 3), h * 0.24, fs * 1.5 * sc, cfg.c2, cfg.c1, 'center', v);
+            txt(SHOUT_P, w / 2 + rr(-3, 3), h * 0.76, fs * 1.5 * sc, HERO.c2, HERO.c1, 'center', v);
         }
         if (S.ph === 'fire') {
             const sc = 1 + Math.sin(S.pt * 0.9) * 0.05;
@@ -449,10 +620,10 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
             ctx.fillStyle = grd; ctx.fillRect(mx, my0, mw, mh);
             const my = lerp(my0, my1, S.posDraw); ctx.fillStyle = '#fff'; ctx.fillRect(mx - 5, my - 3, mw + 10, 6); ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(mx - 5, my - 3, mw + 10, 6);
             ctx.restore();
-            // indicación de qué tocar + velocidad
-            const pulse = 1 + Math.sin(t * 0.5) * 0.08 + S.kick * 0.15;
-            txt(isMobile() ? '¡TOCA  A  SÚPER RÁPIDO!' : '¡MARTILLEA  ESPACIO!', w / 2, h - bar - 18, fs * 0.85 * pulse, '#fff', '#ffd84a', 'center');
-            txt(S.rate + ' toques/s', w - 8, h - bar - 44, fs * 0.55, S.rate >= SUPER_RATE ? '#2dff6a' : (S.rate >= 3 ? '#ffd84a' : '#ff6a6a'), null, 'right');
+            // indicación de qué tocar + velocidad y META (los toques/s que pide este jefe)
+            const mob = isMobile(), pulse = 1 + Math.sin(t * 0.5) * 0.08 + S.kick * 0.15;
+            txt(mob ? '¡MACHACA EL BOTÓN!' : '¡MARTILLEA  ESPACIO!', w / 2, h - bar - 18, fs * 0.85 * pulse, '#fff', '#ffd84a', 'center');
+            txt(S.rate + ' / ' + S.goal + ' toques/s', mob ? 8 : w - 8, h - bar - 44, fs * 0.55, S.rate >= S.goal ? '#2dff6a' : (S.rate >= SUPER_RATE ? '#ffd84a' : '#ff6a6a'), null, mob ? 'left' : 'right');
             if (S.rate >= SUPER_RATE) txt('¡¡SUPER!!', w / 2, h * 0.3, fs * 1.1 + Math.sin(t) * 2, '#ffd84a', '#ff9a2c', 'center');
             if (S.sayT > 0) txt(S.say, w / 2, h * 0.24, fs * 1.05, cfg.c2, cfg.c1, 'center', Math.min(1, S.sayT / 8));
             ctx.save(); ctx.fillStyle = cfg.c1; ctx.fillRect(0, h - 3, w * clamp(S.timeLeft / TIME_LIMIT, 0, 1), 3); ctx.restore();   // tiempo restante
@@ -465,7 +636,8 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
     function frame() {
         try { step(); } catch (e) { console.error('[choque] step', e); abort(); return false; }
         if (!ST) return false;
-        try { render(); } catch (e) { console.error('[choque] render', e); try { ctx.restore(); } catch (e2) {} abort(); return false; }
+        try { render(); } catch (e) { console.error('[choque] render', e); try { ctx.restore(); ctx.restore(); } catch (e2) {} abort(); return false; }
+        syncBtn();
         return true;
     }
     const valid = () => ST && isPlaying && activeBoss === ST.boss && ST.boss.state === 'active';
@@ -497,7 +669,7 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
     // ---------------------------------------------------------------------- enganches
     const _take = Extras.takeover, _busy = Extras.busy, _after = Extras.afterFrame, _run = Extras.onRunStart;
     Extras.takeover = function () {
-        if (ST) { if (valid()) { if (frame()) return true; } else { ST = null; parts.length = 0; } }
+        if (ST) { if (valid()) { if (frame()) return true; } else { ST = null; parts.length = 0; hideBtn(); try { player.bankAngle = 0; } catch (e) {} } }
         return _take.apply(Extras, arguments);
     };
     Extras.busy = function () { return !!ST || _busy.apply(Extras, arguments); };
@@ -507,9 +679,49 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
         if (post > 0.01) { wash(postCol, post); post -= 0.045; }
         return r;
     };
-    Extras.onRunStart = function () { ST = null; post = 0; dropT = 0; parts.length = 0; return _run.apply(Extras, arguments); };
+    Extras.onRunStart = function () { ST = null; post = 0; dropT = 0; parts.length = 0; hideBtn(); return _run.apply(Extras, arguments); };
 
-    // entradas: Espacio, botón A del móvil, clic de ratón
+
+    // ---------------------------------------------------------------------- botón "¡MACHACA!" (solo móvil, solo en el pulso)
+    let mbtn = null;
+    function ensureBtn() {
+        if (mbtn) return mbtn;
+        const st = document.createElement('style');
+        st.textContent =
+            '#btnClash{position:fixed;right:max(14px,3vmin);bottom:max(18px,calc(env(safe-area-inset-bottom,0px) + 3vmin));' +
+            'width:clamp(124px,30vmin,190px);height:clamp(124px,30vmin,190px);border-radius:50%;border:4px solid #fff;padding:0;' +
+            'background:radial-gradient(circle at 35% 30%,#fff7b0 0%,#ffb800 42%,#ff3d00 100%);color:#2a0000;' +
+            'font:12px "Press Start 2P",monospace;line-height:1.5;text-align:center;display:none;z-index:2147483000;' +
+            'touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;outline:none;' +
+            'box-shadow:0 0 30px 8px rgba(255,160,0,.85),inset 0 -10px 20px rgba(120,0,0,.5);animation:clashPulse .45s ease-in-out infinite alternate}' +
+            '#btnClash.show{display:flex;flex-direction:column;align-items:center;justify-content:center}' +
+            '#btnClash.lefty{right:auto;left:max(14px,3vmin)}' +
+            '#btnClash small{font-size:8px;opacity:.75;margin-top:4px}' +
+            '#btnClash.pressed{animation:none;transform:scale(.88);filter:brightness(1.3)}' +
+            '@keyframes clashPulse{from{transform:scale(1)}to{transform:scale(1.08)}}';
+        document.head.appendChild(st);
+        mbtn = document.createElement('button');
+        mbtn.id = 'btnClash'; mbtn.type = 'button'; mbtn.innerHTML = '¡MACHACA!<small>TOCA RÁPIDO</small>';
+        mbtn.addEventListener('pointerdown', e => {
+            e.preventDefault(); e.stopPropagation(); mbtn.classList.add('pressed');
+            if (ST && !held()) { press(); try { if (navigator.vibrate) navigator.vibrate(5); } catch (er) {} }
+        });
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => mbtn.addEventListener(n, () => mbtn.classList.remove('pressed')));
+        mbtn.addEventListener('contextmenu', e => e.preventDefault());
+        document.body.appendChild(mbtn);
+        return mbtn;
+    }
+    function hideBtn() { if (mbtn) { mbtn.classList.remove('show'); mbtn.classList.remove('pressed'); } }
+    function syncBtn() {
+        const show = !!ST && ST.ph === 'struggle' && isMobile() && !held() && isPlaying;
+        if (!show) { hideBtn(); return; }
+        const b = ensureBtn(), root = document.getElementById('mobileControls');
+        b.classList.toggle('lefty', !!(root && root.classList.contains('lefty')));
+        b.classList.add('show');
+    }
+    setInterval(() => { if (mbtn && !(ST && ST.ph === 'struggle' && isMobile() && !held() && isPlaying)) hideBtn(); }, 250);   // por si el juego se cierra / pausa
+
+    // entradas: Espacio, botón A del móvil, botón grande, clic de ratón
     const held = () => window.GamePause && window.GamePause.on;
     window.addEventListener('keydown', e => { if (!ST || held()) return; if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) press(); } }, true);
     const bind = () => {
@@ -518,9 +730,19 @@ const SUPER_RATE = 5;                   // toques/s para el bonus ¡SUPER! (x1.3
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
 
+    // Tabla de dificultad: toques/s que pide cada jefe (0..7) en cada dificultad (con el bonus ¡SUPER!)
+    function needTable(mobile) {
+        const out = {};
+        ['facil', 'medio', 'dificil', 'lunatico'].forEach(d => { out[d] = []; for (let i = 0; i < 8; i++) out[d].push(goalFor(d, i, 0, !!mobile)); });
+        try { console.table(out); } catch (e) {}
+        return out;
+    }
+
     window.Choque = {
         active: () => !!ST,
         intercept,
-        dev: { start() { if (activeBoss && activeBoss.state === 'active' && !ST) { activeBoss._clashN = 0; activeBoss._clashDone = false; start(activeBoss); } } }
+        need: needTable,
+        dev: { state: () => ST && ({ ph: ST.ph, pt: ST.pt, pos: ST.pos, goal: ST.goal, rate: ST.rate, cam: { fx: ST.cam.fx, fy: ST.cam.fy, s: ST.cam.s }, px: player.x, py: player.y }),
+               start() { if (activeBoss && activeBoss.state === 'active' && !ST) { activeBoss._clashN = 0; activeBoss._clashDone = false; start(activeBoss); } } }
     };
 })();
