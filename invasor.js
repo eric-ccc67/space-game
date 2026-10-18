@@ -166,24 +166,163 @@
         };
         return b;
     }
-    function snakeChain(x0, speedY) {            // serpiente de balas: la cabeza zigzaguea y el cuerpo sigue su rastro
-        const ctrl = { trail: [] }, out = [], W = playAreaW;
-        for (let i = 0; i < 9; i++) {
-            const b = mk(x0, 52, 0, 0, 13); b._t = 0; b._i = i;
-            if (i === 0) {
-                b.update = function () { this._t++; this.y += speedY; this.x = clamp(x0 + Math.sin(this._t * 0.055) * W * 0.33, 14, W - 14); ctrl.trail.push({ x: this.x, y: this.y }); if (ctrl.trail.length > 90) ctrl.trail.shift(); };
-            } else {
-                b.update = function () { const tr = ctrl.trail, k = tr.length - 1 - this._i * 6; if (k >= 0) { this.x = tr[k].x; this.y = tr[k].y; } else { this.x = -999; } };
-            }
-            b.draw = function () {
-                if (this.x < -500) return; const x = Math.round(this.x), y = Math.round(this.y), h = this._i === 0;
-                ctx.save(); ctx.fillStyle = h ? '#c8ff6a' : (this._i % 2 ? '#3ed83e' : '#2ab02a'); ctx.fillRect(x - 7, y - 7, 14, 14);
-                if (h) { ctx.fillStyle = '#10300a'; ctx.fillRect(x - 4, y - 3, 3, 3); ctx.fillRect(x + 1, y - 3, 3, 3); }
-                ctx.restore();
+    // cadena de balas que recorre una trayectoria precalculada (cada segmento lleva su propio reloj: no se congela nunca)
+    function pathChain(path, n, lag, w, look) {
+        const out = [];
+        for (let i = 0; i < n; i++) {
+            const b = mk(path[0].x, path[0].y, 0, 0, w); b._t = 0; b._i = i; b._w = w;
+            b.update = function () {
+                this._t++; const k = this._t - this._i * lag;
+                if (k < 0) { this._hid = true; this.width = this.height = -30; return; }
+                this._hid = false; this.width = this.height = this._w;
+                if (k >= path.length) { this.x = -999; return; }
+                this.x = path[k].x; this.y = path[k].y;
             };
+            b.draw = function () { if (!this._hid) look(this, this._i); };
             out.push(b);
         }
         return out;
+    }
+    function snakeChain(x0, speedY) {            // SNAKE: la cabeza zigzaguea y el cuerpo sigue su rastro
+        const path = [], W = playAreaW; for (let k = 0; path.length < 900; k++) { const y = 52 + speedY * k; path.push({ x: clamp(x0 + Math.sin(k * 0.055) * W * 0.33, 14, W - 14), y }); if (y > playAreaH + 40) break; }
+        return pathChain(path, 9, 6, 13, (b, i) => {
+            const x = Math.round(b.x), y = Math.round(b.y), h = i === 0;
+            ctx.save(); ctx.fillStyle = h ? '#c8ff6a' : (i % 2 ? '#3ed83e' : '#2ab02a'); ctx.fillRect(x - 7, y - 7, 14, 14);
+            if (h) { ctx.fillStyle = '#10300a'; ctx.fillRect(x - 4, y - 3, 3, 3); ctx.fillRect(x + 1, y - 3, 3, 3); }
+            ctx.restore();
+        });
+    }
+    // ---- v31: ocho clásicos de los 80 (Donkey Kong, Centipede, Missile Command, Tron, Bomberman, R-Type, Robotron, Q*bert)
+    function centipede(dir0, y0, n) {            // CENTIPEDE: recorre filas y baja un escalón al llegar al borde
+        const W = playAreaW, path = []; let x = dir0 > 0 ? -12 : W + 12, y = y0, dir = dir0;
+        while (y < playAreaH + 40 && path.length < 1400) {
+            x += dir * 5.4; path.push({ x, y });
+            if ((dir > 0 && x > W - 14) || (dir < 0 && x < 14)) { for (let k = 0; k < 22; k++) { y += 5; path.push({ x, y }); } dir *= -1; }
+        }
+        return pathChain(path, n, 6, 13, (b, i) => {
+            const x = Math.round(b.x), y = Math.round(b.y), h = i === 0, f = (b._t >> 3) & 1;
+            ctx.save(); ctx.fillStyle = h ? '#ff4a4a' : '#3ed83e'; ctx.fillRect(x - 7, y - 6, 14, 12);
+            ctx.fillStyle = '#ffe14a'; ctx.fillRect(x - 5, y + 6, 2, 3 + f * 2); ctx.fillRect(x + 3, y + 6, 2, 5 - f * 2); ctx.fillRect(x - 5, y - 9, 2, 3 + f * 2); ctx.fillRect(x + 3, y - 9, 2, 5 - f * 2);
+            if (h) { ctx.fillStyle = '#fff'; ctx.fillRect(x - 4, y - 3, 3, 3); ctx.fillRect(x + 1, y - 3, 3, 3); }
+            ctx.restore();
+        });
+    }
+    function mushroom(x, y) {                    // seta de Centipede: obstáculo fijo un rato
+        const b = mk(x, y, 0, 0, 14); b._t = 0;
+        b.update = function () { if (++this._t > 380) this.x = -999; };
+        b.draw = function () { const xx = Math.round(this.x), yy = Math.round(this.y), a = this._t > 340 ? (380 - this._t) / 40 : 1; ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = '#ff4a6a'; ctx.fillRect(xx - 8, yy - 8, 16, 9); ctx.fillRect(xx - 5, yy - 11, 10, 3); ctx.fillStyle = '#fff'; ctx.fillRect(xx - 5, yy - 6, 3, 3); ctx.fillRect(xx + 2, yy - 8, 3, 3); ctx.fillStyle = '#ffe9c0'; ctx.fillRect(xx - 3, yy + 1, 6, 7); ctx.restore(); };
+        return b;
+    }
+    function kongBarrel(dir0, y0) {              // DONKEY KONG: barril que rueda por la viga y cae al siguiente piso
+        const W = playAreaW, b = mk(dir0 > 0 ? -14 : W + 14, y0, dir0 * 4.0, 0, 16); b._d = dir0; b._fall = 0; b._t = 0;
+        b.update = function () {
+            this._t++;
+            if (this._fall > 0) { this.y += 3.6; this._fall -= 3.6; if (this._fall <= 0) { this._d *= -1; this.vx = this._d * 4.0; } }
+            else { this.x += this.vx; if ((this._d > 0 && this.x > W - 14) || (this._d < 0 && this.x < 14)) this._fall = 120; }
+        };
+        b.draw = function () {
+            const x = Math.round(this.x), y = Math.round(this.y), r = (this._t * 0.2 * (this._d || 1)) % (Math.PI * 2);
+            ctx.save(); ctx.translate(x, y); ctx.rotate(r); ctx.fillStyle = '#b8601a'; ctx.beginPath(); ctx.arc(0, 0, 11, 0, 6.3); ctx.fill();
+            ctx.fillStyle = '#6a3410'; ctx.fillRect(-11, -2, 22, 4); ctx.fillRect(-2, -11, 4, 22); ctx.fillStyle = '#e89a4a'; ctx.fillRect(-7, -7, 4, 4); ctx.restore();
+        };
+        return b;
+    }
+    function missile(x0, y0, tx, ty, sp) {       // MISSILE COMMAND: misil con estela que acaba en explosión
+        const a = Math.atan2(ty - y0, tx - x0), b = mk(x0, y0, Math.cos(a) * sp, Math.sin(a) * sp, 8); b._o = { x: x0, y: y0 }; b._tx = tx; b._ty = ty; b._boom = 0; b._t = 0; b._R = 40;
+        b.update = function () {
+            this._t++;
+            if (this._boom > 0) {
+                const f = ++this._boom, R = this._R, r = f <= 22 ? R * f / 22 : R * (1 - (f - 22) / 26);
+                this.width = this.height = Math.max(1, (r - 2.2) / 0.4); if (f > 48) this.x = -999;
+            } else { this.x += this.vx; this.y += this.vy; if (this.y >= this._ty) { this._boom = 1; this.vx = this.vy = 0; this.x = this._tx; this.y = this._ty; beep(110, 0.3, 'sawtooth', 0.06, 40); } }
+        };
+        b.draw = function () {
+            ctx.save();
+            if (this._boom > 0) {
+                const f = this._boom, R = this._R, r = Math.max(1, f <= 22 ? R * f / 22 : R * (1 - (f - 22) / 26)), g = ctx.createRadialGradient(this.x, this.y, 1, this.x, this.y, r);
+                g.addColorStop(0, '#fff'); g.addColorStop(0.5, '#ffe14a'); g.addColorStop(1, 'rgba(255,60,30,0.85)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, 6.3); ctx.fill();
+            } else {
+                ctx.strokeStyle = '#ff5a5a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(this._o.x, this._o.y); ctx.lineTo(this.x, this.y); ctx.stroke();
+                ctx.fillStyle = '#fff'; ctx.fillRect(Math.round(this.x) - 3, Math.round(this.y) - 3, 6, 6);
+                if ((this._t >> 3) & 1) { ctx.strokeStyle = '#7dff7d'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(this._tx - 8, this._ty - 8); ctx.lineTo(this._tx + 8, this._ty + 8); ctx.moveTo(this._tx + 8, this._ty - 8); ctx.lineTo(this._tx - 8, this._ty + 8); ctx.stroke(); }
+            }
+            ctx.restore();
+        };
+        return b;
+    }
+    function tronCell(x, y, col) {               // estela de moto de luz
+        const b = mk(x, y, 0, 0, 10); b._t = 0;
+        b.update = function () { if (++this._t > 115) this.x = -999; };
+        b.draw = function () { const a = this._t > 90 ? (115 - this._t) / 25 : 1; ctx.save(); ctx.globalAlpha = 0.9 * a; ctx.fillStyle = col; ctx.fillRect(Math.round(this.x) - 5, Math.round(this.y) - 5, 10, 10); ctx.fillStyle = '#fff'; ctx.fillRect(Math.round(this.x) - 2, Math.round(this.y) - 2, 4, 4); ctx.restore(); };
+        return b;
+    }
+    function tronCycle(x, y, dx, dy, col) {      // TRON: la moto gira en ángulos rectos y deja un muro de luz
+        const W = playAreaW, H = playAreaH, b = mk(x, y, dx * 5.0, dy * 5.0, 12); b._t = 0; b._turn = 38 + Math.floor(rnd(0, 18));
+        b.update = function () {
+            this._t++; this.x += this.vx; this.y += this.vy; if (this._t % 6 === 0) fire(tronCell(this.x, this.y, col));
+            const out = this.x < 8 || this.x > W - 8 || this.y < 64 || this.y > H - 8;
+            if (this._t >= this._turn || out) {
+                this._turn = this._t + 32 + Math.floor(rnd(0, 26));
+                if (Math.abs(this.vx) > 0) { const d = this.y < H * 0.5 ? 1 : -1; this.vx = 0; this.vy = d * 5.0; } else { const d = this.x < W * 0.5 ? 1 : -1; this.vy = 0; this.vx = d * 5.0; }
+                this.x = clamp(this.x, 8, W - 8); this.y = clamp(this.y, 64, H - 8);
+            }
+            if (this._t > 175) this.x = -999;
+        };
+        b.draw = function () { ctx.save(); ctx.fillStyle = col; if (!lowFx()) { ctx.shadowColor = col; ctx.shadowBlur = 14; } ctx.fillRect(Math.round(this.x) - 8, Math.round(this.y) - 8, 16, 16); ctx.fillStyle = '#fff'; ctx.fillRect(Math.round(this.x) - 4, Math.round(this.y) - 4, 8, 8); ctx.restore(); };
+        return b;
+    }
+    function fireCell(x, y) {                    // casilla de llamas de Bomberman
+        const b = mk(x, y, 0, 0, 24); b._t = 0;
+        b.update = function () { if (++this._t > 26) this.x = -999; };
+        b.draw = function () { const a = this._t > 18 ? (26 - this._t) / 8 : 1; ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = '#ff8a1a'; ctx.fillRect(Math.round(this.x) - 15, Math.round(this.y) - 15, 30, 30); ctx.fillStyle = '#ffe14a'; ctx.fillRect(Math.round(this.x) - 9, Math.round(this.y) - 9, 18, 18); ctx.fillStyle = '#fff'; ctx.fillRect(Math.round(this.x) - 4, Math.round(this.y) - 4, 8, 8); ctx.restore(); };
+        return b;
+    }
+    function bomb(x, y) {                        // BOMBERMAN: mecha de ~1.2 s y explosión en cruz
+        const b = mk(x, y, 0, 0, 12); b._t = 0; b.width = b.height = -30;
+        b.update = function () {
+            this._t++; this.width = this.height = -30;
+            if (this._t === 72) {
+                const W = playAreaW, H = playAreaH; fire(fireCell(this.x, this.y));
+                [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(d => { for (let k = 1; k <= 4; k++) { const xx = this.x + d[0] * k * 32, yy = this.y + d[1] * k * 32; if (xx > 0 && xx < W && yy > 40 && yy < H) fire(fireCell(xx, yy)); } });
+                screenShake = Math.max(screenShake, 8); beep(90, 0.35, 'sawtooth', 0.08, 40); this.x = -999;
+            }
+        };
+        b.draw = function () {
+            const x = Math.round(this.x), y = Math.round(this.y), blink = (this._t >> (this._t > 48 ? 2 : 3)) & 1;
+            ctx.save();
+            if (this._t > 30) { ctx.globalAlpha = 0.28; ctx.fillStyle = '#ff8a1a'; ctx.fillRect(x - 15, y - 15, 30, 30); for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) ctx.fillRect(x + d[0] * 16 - (d[0] ? (d[0] > 0 ? 0 : 128) : 15), y + d[1] * 16 - (d[1] ? (d[1] > 0 ? 0 : 128) : 15), d[0] ? 128 : 30, d[1] ? 128 : 30); ctx.globalAlpha = 1; }
+            ctx.fillStyle = blink ? '#ffffff' : '#20202c'; ctx.beginPath(); ctx.arc(x, y + 2, 11, 0, 6.3); ctx.fill(); ctx.fillStyle = '#5a5a6a'; ctx.fillRect(x - 6, y - 4, 4, 4);
+            ctx.fillStyle = '#8a6a3a'; ctx.fillRect(x + 2, y - 13, 3, 5); ctx.fillStyle = (this._t >> 1) & 1 ? '#ffe14a' : '#ff5a1a'; ctx.fillRect(x + 1, y - 17, 5, 5); ctx.restore();
+        };
+        return b;
+    }
+    function bydo(y0) {                          // R-TYPE: orbe Bydo que ondula
+        const b = mk(playAreaW + 10, y0, -3.0, 0, 10); b._t = 0; b._y0 = y0;
+        b.update = function () { this._t++; this.x += this.vx; this.y = this._y0 + Math.sin(this._t * 0.07) * 42; };
+        b.draw = function () { const x = Math.round(this.x), y = Math.round(this.y); ctx.save(); ctx.fillStyle = '#7a2ad8'; ctx.beginPath(); ctx.arc(x, y, 9, 0, 6.3); ctx.fill(); ctx.fillStyle = '#ff5ad0'; ctx.beginPath(); ctx.arc(x - 2, y, 5, 0, 6.3); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillRect(x - 4, y - 2, 3, 3); ctx.restore(); };
+        return b;
+    }
+    function grunt(x, y, sp) {                   // ROBOTRON: robot que te persigue con giro lento
+        const b = mk(x, y, 0, 0, 12); b._t = 0; b._a = Math.atan2(pcy() - y, pcx() - x);
+        b.update = function () {
+            this._t++; const a = Math.atan2(pcy() - this.y, pcx() - this.x); let d = ((a - this._a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+            this._a += clamp(d, -0.045, 0.045); this.x += Math.cos(this._a) * sp; this.y += Math.sin(this._a) * sp; if (this._t > 270) this.x = -999;
+        };
+        b.draw = function () {
+            const x = Math.round(this.x), y = Math.round(this.y), f = (this._t >> 3) & 1, a = this._t > 235 ? (270 - this._t) / 35 : 1;
+            ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = '#ff3a3a'; ctx.fillRect(x - 6, y - 7, 12, 12); ctx.fillStyle = '#ffe14a'; ctx.fillRect(x - 9, y - 3 + f * 2, 3, 6); ctx.fillRect(x + 6, y - 3 - f * 2, 3, 6);
+            ctx.fillRect(x - 5, y + 5, 3, 4 + f * 2); ctx.fillRect(x + 2, y + 5, 3, 6 - f * 2); ctx.fillStyle = '#fff'; ctx.fillRect(x - 4, y - 4, 3, 3); ctx.fillRect(x + 1, y - 4, 3, 3); ctx.restore();
+        };
+        return b;
+    }
+    function qball(x) {                          // Q*BERT: bolita naranja que baja saltando en diagonal
+        const W = playAreaW, b = mk(x, 56, 0, 0, 13); b._t = 0; b._by = 56; b._d = Math.random() < 0.5 ? 1 : -1;
+        b.update = function () {
+            const h = this._t % 30; if (h === 0 && this._t > 0) { this._by += 56; this._d = this.x < 40 ? 1 : (this.x > W - 40 ? -1 : (Math.random() < 0.5 ? 1 : -1)); beep(520, 0.04, 'square', 0.03); }
+            this._t++; const f = h / 30; this.x += this._d * 46 / 30; this.y = this._by + 56 * f - 28 * Math.sin(Math.PI * f);
+        };
+        b.draw = function () { const x = Math.round(this.x), y = Math.round(this.y), r = this._d; ctx.save(); ctx.fillStyle = '#ff8a1a'; ctx.beginPath(); ctx.arc(x, y, 11, 0, 6.3); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillRect(x - 6, y - 6, 5, 6); ctx.fillRect(x + 1, y - 6, 5, 6); ctx.fillStyle = '#000'; ctx.fillRect(x - 4 + r, y - 4, 2, 3); ctx.fillRect(x + 3 + r, y - 4, 2, 3); ctx.fillStyle = '#ffb04a'; ctx.fillRect(x + r * 6 - 3, y + 1, 6, 4); ctx.restore(); };
+        return b;
     }
     function froggerCar(x, y, vx, col) {         // coche de Frogger: tres cuadrados en fila
         const out = [];
@@ -282,11 +421,11 @@
     // ==========================================================================================
     const POOL = {
         1: ['zigzag', 'plunger', 'march', 'zigzag', 'plunger'],
-        2: ['zigzag', 'plunger', 'march', 'bunkers', 'ufo', 'pong', 'tetris', 'asteroids', 'snake', 'frogger'],
-        3: ['zigzag', 'plunger', 'pong', 'tetris', 'asteroids', 'pacman', 'curtain', 'spiral', 'laser', 'ufo', 'march', 'galaga', 'snake', 'frogger']
+        2: ['zigzag', 'plunger', 'march', 'bunkers', 'ufo', 'pong', 'tetris', 'asteroids', 'snake', 'frogger', 'kong', 'centipede', 'missile', 'qbert'],
+        3: ['zigzag', 'plunger', 'pong', 'tetris', 'asteroids', 'pacman', 'curtain', 'spiral', 'laser', 'ufo', 'march', 'galaga', 'snake', 'frogger', 'kong', 'centipede', 'missile', 'qbert', 'tron', 'bomber', 'rtype', 'robotron']
     };
-    const TAGS = { zigzag: 'ZIGZAG', plunger: 'PLUNGER', march: '¡INVASIÓN!', bunkers: 'ESCUDOS 1978', ufo: 'OVNI MISTERIOSO', pong: 'PONG', tetris: 'TETRIS', asteroids: 'ASTEROIDS', pacman: 'WAKA WAKA', curtain: 'SPACE INVADERS', spiral: 'INSERT COIN', laser: 'CAÑÓN LÁSER', galaga: 'GALAGA', snake: 'SNAKE', frogger: 'FROGGER' };
-    const ATK_LEN = { zigzag: 110, plunger: 80, march: 20, bunkers: 40, ufo: 30, pong: 110, tetris: 200, asteroids: 130, pacman: 170, curtain: 90, spiral: 210, laser: 190, galaga: 210, snake: 150, frogger: 210 };
+    const TAGS = { zigzag: 'ZIGZAG', plunger: 'PLUNGER', march: '¡INVASIÓN!', bunkers: 'ESCUDOS 1978', ufo: 'OVNI MISTERIOSO', pong: 'PONG', tetris: 'TETRIS', asteroids: 'ASTEROIDS', pacman: 'WAKA WAKA', curtain: 'SPACE INVADERS', spiral: 'INSERT COIN', laser: 'CAÑÓN LÁSER', galaga: 'GALAGA', snake: 'SNAKE', frogger: 'FROGGER', kong: 'DONKEY KONG', centipede: 'CENTIPEDE', missile: 'MISSILE COMMAND', tron: 'TRON', bomber: 'BOMBERMAN', rtype: 'R-TYPE', robotron: 'ROBOTRON', qbert: 'Q*BERT' };
+    const ATK_LEN = { zigzag: 110, plunger: 80, march: 20, bunkers: 40, ufo: 30, pong: 110, tetris: 200, asteroids: 130, pacman: 170, curtain: 90, spiral: 210, laser: 190, galaga: 210, snake: 150, frogger: 210, kong: 190, centipede: 150, missile: 200, tron: 200, bomber: 230, rtype: 215, robotron: 250, qbert: 200 };
 
     class InvaderBoss {
         constructor() {
@@ -302,7 +441,7 @@
             this.dir = 1; this.stepT = 0; this.frame = 0; this.drops = 0;
             this.cool = 70; this.atk = null; this.lastAtk = '';
             this.minions = null; this.mDir = 1; this.mStepT = 0; this.mFrame = 0;
-            this.ufo = null; this.bunkers = []; this.beams = []; this.pac = null;
+            this.ufo = null; this.bunkers = []; this.beams = []; this.hbeams = []; this.pac = null;
             this.msg = null; this.tag = null; this.popups = []; this.hitFlash = 0; this.trail = 1; this.bits = null; this.deadT = 0;
             this.say('¿CRÉDITOS? ¡SI NI HE EMPEZADO!', 170);
         }
@@ -350,7 +489,7 @@
         }
 
         beginTransition() {
-            this.trans = 100; this.atk = null; this.tractor = null; this.cool = 40; clearMyBullets();
+            this.trans = 100; this.atk = null; this.tractor = null; this.hbeams = []; this.cool = 40; clearMyBullets();
             screenShake = 22; playExplosionSound();
             if (this.phase === 2) { this.say('¡INSERTA MONEDA PARA CONTINUAR!', 120); this.tag = { text: 'NIVEL 2', t: 100 }; }
             else { this.say('¡MODO DIFÍCIL! ¡DOBLE VELOCIDAD!', 120); this.tag = { text: 'NIVEL 3 · ¡DIFÍCIL!', t: 100 }; }
@@ -448,6 +587,55 @@
                         }
                         beep(160, 0.08, 'square', 0.04);
                     }
+                    break;
+                case 'kong':
+                    if (t === 0) this.say('¡TOMA ESTOS BARRILES!', 80);
+                    if (t % 38 === 0 && t < 150) { const row = Math.floor(t / 38) % 3; fire(kongBarrel((t / 38) % 2 ? -1 : 1, by + 40 + row * 100)); beep(150, 0.08, 'square', 0.04, 90); }
+                    break;
+                case 'centipede':
+                    if (t === 0) {
+                        centipede(Math.random() < 0.5 ? 1 : -1, by + 36, 12).forEach(fire); if (ph >= 3) centipede(-1, by + 150, 9).forEach(fire);
+                        for (let i = 0; i < 5; i++) fire(mushroom(rnd(40, W - 40), rnd(playAreaH * 0.35, playAreaH * 0.75)));
+                        beep(180, 0.2, 'square', 0.05, 360);
+                    }
+                    break;
+                case 'missile':
+                    if (t === 0) this.say('¡LLUEVEN MISILES!', 80);
+                    if (t % 26 === 0 && t < 156) {
+                        const k = t / 26, tx = k % 3 === 2 ? clamp(pcx(), 30, W - 30) : rnd(30, W - 30), ty = playAreaH - rnd(40, 90);
+                        fire(missile(sx(), by, tx, ty, 2.6 + (ph - 1) * 0.35)); beep(700, 0.08, 'sawtooth', 0.03, 300);
+                    }
+                    break;
+                case 'tron':
+                    if (t === 0) {
+                        const ya = clamp(pcy() - 110, 90, playAreaH - 60), yb = clamp(pcy() + 110, 90, playAreaH - 60);
+                        fire(tronCycle(10, ya, 1, 0, '#2ad8ff')); fire(tronCycle(W - 10, yb, -1, 0, '#ff9a1a'));
+                        if (ph >= 3) fire(tronCycle(W / 2, 70, 0, 1, '#ff3adf'));
+                        this.say('FIN DE LÍNEA.', 80); beep(260, 0.3, 'sawtooth', 0.05, 520);
+                    }
+                    break;
+                case 'bomber':
+                    if (t === 0) this.say('¡BOMBA PUESTA!', 70);
+                    if (t % 52 === 0 && t < 170) { fire(bomb(clamp(pcx() + (t ? rnd(-50, 50) : 0), 40, W - 40), clamp(pcy(), 90, playAreaH - 40))); beep(330, 0.06, 'square', 0.04); }
+                    break;
+                case 'rtype':
+                    if (t === 0 || t === 72 || t === 144) {
+                        this.hbeams.push({ y: clamp(pcy(), 90, playAreaH - 40), t: 0, warn: 70, on: 22, h: 44 });
+                        if (t === 0) this.say('CARGANDO RAYO ONDA...', 90);
+                    }
+                    if (t % 24 === 0 && t < 190) fire(bydo(rnd(playAreaH * 0.3, playAreaH * 0.85)));
+                    break;
+                case 'robotron':
+                    if (t === 0) this.say('¡LOS ROBOTS VAN A POR TI!', 90);
+                    if (t % 36 === 0 && t < 180) {
+                        let x, y, tries = 0; do { const side = Math.floor(rnd(0, 4)); x = side === 0 ? 10 : side === 1 ? W - 10 : rnd(20, W - 20); y = side === 2 ? by + 20 : side === 3 ? playAreaH - 10 : rnd(by + 20, playAreaH - 10); } while (Math.hypot(x - pcx(), y - pcy()) < 170 && ++tries < 8);
+                        fire(grunt(x, y, 1.45 + (ph - 1) * 0.3)); fire(grunt(W - x, y, 1.45 + (ph - 1) * 0.3));
+                        beep(200, 0.08, 'square', 0.04, 120);
+                    }
+                    break;
+                case 'qbert':
+                    if (t === 0) this.say('¡@!#$%&!', 70);
+                    if (t % 44 === 0 && t < 135) { fire(qball(rnd(60, W - 60))); if (ph >= 3) fire(qball(rnd(60, W - 60))); }
                     break;
                 case 'pacman':
                     if (this.pac) {
@@ -560,6 +748,14 @@
                 if (L.t >= L.warn && L.t < L.warn + L.on && Math.abs(pcx() - L.x) < 19) hurt();
                 if (L.t >= L.warn + L.on) this.beams.splice(i, 1);
             }
+            // --- rayo onda de R-Type (horizontal): sigue tu altura y se queda fijo justo antes de disparar
+            for (let i = (this.hbeams || []).length - 1; i >= 0; i--) {
+                const L = this.hbeams[i]; L.t++;
+                if (L.t < L.warn - 18) L.y += (pcy() - L.y) * 0.1;
+                if (L.t === L.warn) { screenShake = Math.max(screenShake, 8); beep(90, 0.4, 'sawtooth', 0.08, 40); }
+                if (L.t >= L.warn && L.t < L.warn + L.on && Math.abs(pcy() - L.y) < L.h / 2 - 3) hurt();
+                if (L.t >= L.warn + L.on) this.hbeams.splice(i, 1);
+            }
             if (this.pac && !this.atk && !enemyBullets.some(b => b.inv && b._pac)) this.pac = null;
             this.popups = this.popups.filter(p => --p.t > 0);
         }
@@ -567,7 +763,7 @@
         updateDead() {
             if (!this.bits) {
                 this.bits = []; clearMyBullets();
-                this.minions = null; this.ufo = null; this.bunkers = []; this.beams = []; this.tractor = null; this.pac = null; this.atk = null; this.msg = null; this.tag = null;
+                this.minions = null; this.ufo = null; this.bunkers = []; this.beams = []; this.hbeams = []; this.tractor = null; this.pac = null; this.atk = null; this.msg = null; this.tag = null;
                 ROWS.crab[this.frame].forEach((row, r) => { for (let c = 0; c < 11; c++) if (row[c] === '#') this.bits.push({ x: this.x + c * this.u, y: this.y + r * this.u, vx: (c - 5) * 0.55 + rnd(-1, 1), vy: rnd(-5, 0), a: 1 }); });
             }
             this.deadT++;
@@ -593,6 +789,19 @@
                     ctx.fillRect(L.x - 17 - f / 2, this.bottom, 34 + f, H - this.bottom);
                     ctx.fillStyle = '#9cf'; ctx.fillRect(L.x - 6, this.bottom, 12, H - this.bottom); ctx.shadowBlur = 0;
                 }
+            });
+            (this.hbeams || []).forEach(L => {
+                ctx.save();
+                if (L.t < L.warn) {
+                    const k = L.t / L.warn; ctx.globalAlpha = 0.45 + 0.35 * Math.sin(L.t * 0.6); ctx.fillStyle = '#7ad0ff';
+                    for (let x = 0; x < W; x += 28) ctx.fillRect(x, L.y - 1, 14, 3);
+                    ctx.globalAlpha = 0.9; ctx.fillStyle = '#10182c'; ctx.fillRect(6, L.y - 8, 90, 16); ctx.strokeStyle = '#7ad0ff'; ctx.strokeRect(6, L.y - 8, 90, 16); ctx.fillStyle = k > 0.85 ? '#ffffff' : '#ff9a1a'; ctx.fillRect(8, L.y - 6, 86 * k, 12);
+                } else {
+                    const on = L.t - L.warn, a = on < 3 ? on / 3 : (on > L.on - 5 ? Math.max(0, (L.on - on) / 5) : 1), f = Math.random() * 6;
+                    ctx.globalAlpha = a; if (!lowFx()) { ctx.shadowColor = '#7ad0ff'; ctx.shadowBlur = 24; }
+                    ctx.fillStyle = '#7a4aff'; ctx.fillRect(0, L.y - L.h / 2 - f / 2, W, L.h + f); ctx.fillStyle = '#7ad0ff'; ctx.fillRect(0, L.y - L.h / 3, W, L.h * 0.66); ctx.fillStyle = '#fff'; ctx.fillRect(0, L.y - 5, W, 10); ctx.shadowBlur = 0;
+                }
+                ctx.restore();
             });
             if (this.tractor && this.tractor.t > 8) {          // rayo tractor de Galaga
                 const T = this.tractor, on = T.t > 50, f = on ? 0.4 + 0.25 * Math.sin(T.t * 0.6) : 0.15 + 0.1 * Math.sin(T.t * 0.8);

@@ -688,17 +688,18 @@
         if (mbtn) return mbtn;
         const st = document.createElement('style');
         st.textContent =
-            '#btnClash{position:fixed;right:max(14px,3vmin);bottom:max(18px,calc(env(safe-area-inset-bottom,0px) + 3vmin));' +
+            '#btnClash{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);' +
             'width:clamp(124px,30vmin,190px);height:clamp(124px,30vmin,190px);border-radius:50%;border:4px solid #fff;padding:0;' +
             'background:radial-gradient(circle at 35% 30%,#fff7b0 0%,#ffb800 42%,#ff3d00 100%);color:#2a0000;' +
             'font:12px "Press Start 2P",monospace;line-height:1.5;text-align:center;display:none;z-index:2147483000;' +
             'touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;outline:none;' +
             'box-shadow:0 0 30px 8px rgba(255,160,0,.85),inset 0 -10px 20px rgba(120,0,0,.5);animation:clashPulse .45s ease-in-out infinite alternate}' +
             '#btnClash.show{display:flex;flex-direction:column;align-items:center;justify-content:center}' +
-            '#btnClash.lefty{right:auto;left:max(14px,3vmin)}' +
+            'body.clashMode #mobileControls > *{opacity:0 !important;pointer-events:none !important;transition:opacity .3s ease}' +
+            'body.clashMode #mobileControls .action-btn,body.clashMode #joystickBase,body.clashMode #joystickStick{opacity:0 !important;pointer-events:none !important}' +
             '#btnClash small{font-size:8px;opacity:.75;margin-top:4px}' +
-            '#btnClash.pressed{animation:none;transform:scale(.88);filter:brightness(1.3)}' +
-            '@keyframes clashPulse{from{transform:scale(1)}to{transform:scale(1.08)}}';
+            '#btnClash.pressed{animation:none;transform:translate(-50%,-50%) scale(.88);filter:brightness(1.3)}' +
+            '@keyframes clashPulse{from{transform:translate(-50%,-50%) scale(1)}to{transform:translate(-50%,-50%) scale(1.08)}}';
         document.head.appendChild(st);
         mbtn = document.createElement('button');
         mbtn.id = 'btnClash'; mbtn.type = 'button'; mbtn.innerHTML = '¡MACHACA!<small>TOCA RÁPIDO</small>';
@@ -711,15 +712,15 @@
         document.body.appendChild(mbtn);
         return mbtn;
     }
-    function hideBtn() { if (mbtn) { mbtn.classList.remove('show'); mbtn.classList.remove('pressed'); } }
+    function hideBtn() { document.body.classList.remove('clashMode'); if (mbtn) { mbtn.classList.remove('show'); mbtn.classList.remove('pressed'); } }
     function syncBtn() {
         const show = !!ST && ST.ph === 'struggle' && isMobile() && !held() && isPlaying;
         if (!show) { hideBtn(); return; }
         const b = ensureBtn(), root = document.getElementById('mobileControls');
-        b.classList.toggle('lefty', !!(root && root.classList.contains('lefty')));
+        document.body.classList.add('clashMode');      // joystick y botones se desvanecen: solo queda ¡MACHACA! en el centro
         b.classList.add('show');
     }
-    setInterval(() => { if (mbtn && !(ST && ST.ph === 'struggle' && isMobile() && !held() && isPlaying)) hideBtn(); }, 250);   // por si el juego se cierra / pausa
+    setInterval(() => { if (!(ST && ST.ph === 'struggle' && isMobile() && !held() && isPlaying)) document.body.classList.remove('clashMode'); if (mbtn && !(ST && ST.ph === 'struggle' && isMobile() && !held() && isPlaying)) hideBtn(); }, 250);   // por si el juego se cierra / pausa
 
     // entradas: Espacio, botón A del móvil, botón grande, clic de ratón
     const held = () => window.GamePause && window.GamePause.on;

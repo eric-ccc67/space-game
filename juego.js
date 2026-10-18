@@ -754,8 +754,11 @@ let levelUpFlash = 0; // frames restantes mostrando el aviso de "subida de nivel
 //   2) subes tu Nivel de Ataque (mientras más poderoso eres, más duros se vuelven).
 // Los factores se MULTIPLICAN y dividen el daño que recibe el enemigo. Ajusta estas constantes
 // para balancear: más alto = más difícil.
-const DEF_PER_LEVEL_ENEMY = 0.18;   // +18 % de defensa por cada nivel que pasa (enemigos comunes)
-const DEF_PER_ATTACK_ENEMY = 0.07;  // +7 % por cada Nivel de Ataque
+const DEF_PER_LEVEL_ENEMY = 0.26;   // v31: +26 % de defensa por cada nivel que pasa (enemigos comunes) (antes 0.18)
+const DEF_PER_ATTACK_ENEMY = 0.10;  // v31: +10 % por cada Nivel de Ataque (antes 0.07)
+const DEF_PER_PARTNER_ENEMY = 0.10; // v31: +10 % por cada partner activo (los partners suman mucho daño)
+const DEF_DOUBLEFIRE_ENEMY = 1.30;  // v31: mientras dura el power-up de disparo doble
+const DEF_SUPERSHOT_ENEMY = 1.15;   // v31: mientras dura el super disparo
 const DEF_PER_LEVEL_BOSS = 0.10;    // jefes y mini jefes: menos por nivel porque su vida ya sube por nivel
 const DEF_PER_ATTACK_BOSS = 0.05;
 const POWERUP_DROP_LOSS_PER_LEVEL = 0.05;   // cada nivel baja ~5 % la probabilidad de soltar power-ups
@@ -767,6 +770,9 @@ const LUNATIC_ENEMY_DEF_BONUS = 1.3;
 // LUNÁTICO (niveles 1-7): los enemigos comunes tienen +18 % de vida, +18 % de cadencia de disparo y +18 % de velocidad de descenso.
 // Cambia el 1.18 para ajustarlo (1 = sin bonus). No afecta a jefes ni mini jefes.
 const LUNATIC_ENEMY_BOOST = 1.18;
+// v31: enemigos comunes disparan más rápido (0.74 = ~35 % más disparos) y con balas algo más veloces. Pon 1 / 0.72 para volver a lo de antes.
+const ENEMY_CADENCE_MULT = 0.74;
+const ENEMY_BULLET_SPEED_MULT = 0.80;
 // LUNÁTICO · jefes y mini jefes: +30 % de vida (LUNATIC_BOSS_HP_BOOST). Al quitarles la mitad de la vida entran en MODO DEFENSA:
 // reciben 35 % menos daño (LUNATIC_DEFENSE_MODE_MULT = 0.65), usan sus habilidades más poderosas y descansan menos entre ellas.
 const LUNATIC_BOSS_HP_BOOST = 1.30;
@@ -792,10 +798,14 @@ function bossHpTune(hp, waveNum, isMini) {
 window.bossHpTune = bossHpTune;
 function lunaticBossMode() { return currentDiff === 'lunatico' && currentMode !== 'clasico'; }
 function lunaticEnemyBoost() { return (currentDiff === 'lunatico' && currentMode !== 'clasico') ? LUNATIC_ENEMY_BOOST : 1; }
-function enemyDefenseFactor() {
+function enemyDefenseFactor(e) {
     if (currentMode === 'clasico') return 1;
+    if (e && e.isMinion) return 1;                                   // los esbirros de mini jefe mueren de un golpe
     const lunatic = difficultySettings[currentDiff].enemyDef || 1;   // v16: antes solo LUNÁTICO tenía bonus (LUNATIC_ENEMY_DEF_BONUS)
-    return (1 + levelDefenseStep() * DEF_PER_LEVEL_ENEMY) * (1 + (powerLevel - 1) * DEF_PER_ATTACK_ENEMY) * lunatic * lunaticEnemyBoost();   // +18 % de vida en Lunático
+    const now = Date.now();
+    const nPartners = (typeof partners !== 'undefined' && partners) ? partners.length : 0;
+    const pu = (powerUps.doubleFire > now ? DEF_DOUBLEFIRE_ENEMY : 1) * (powerUps.superShot > now ? DEF_SUPERSHOT_ENEMY : 1);
+    return (1 + levelDefenseStep() * DEF_PER_LEVEL_ENEMY) * (1 + (powerLevel - 1) * DEF_PER_ATTACK_ENEMY) * (1 + nPartners * DEF_PER_PARTNER_ENEMY) * pu * lunatic * lunaticEnemyBoost();   // +18 % de vida en Lunático
 }
 function bossDefenseFactor() {
     if (currentMode === 'clasico') return 1;
@@ -836,10 +846,10 @@ function waveDurFor() {
 }
 // Descenso más pausado de los enemigos en Moderno (las oleadas son más largas).
 // Los enemigos bajan ~22 % más rápido que antes (ajusta ENEMY_DESCENT_BOOST: 1 = como antes).
-const ENEMY_DESCENT_BOOST = 1.32;   // antes 1.22: los enemigos bajan ~8 % más rápido en todas las dificultades
+const ENEMY_DESCENT_BOOST = 1.80;   // v31: antes 1.32 (+48 % de velocidad de descenso).    // antes 1.22: los enemigos bajan ~8 % más rápido en todas las dificultades
 // Velocidad extra POR NIVEL: cada nivel suma este porcentaje al descenso (más alto cuanto mayor la dificultad).
 // Se acumula hasta el nivel 10. Ej. Medio: nivel 1 = x1.00, nivel 4 = x1.105, nivel 6 = x1.175. Ajusta los valores a gusto.
-const ENEMY_LEVEL_STEP = { facil: 0.025, medio: 0.035, dificil: 0.045, lunatico: 0.05 };
+const ENEMY_LEVEL_STEP = { facil: 0.035, medio: 0.05, dificil: 0.058, lunatico: 0.065 };   // v31: antes 0.025 / 0.035 / 0.045 / 0.05
 function enemyLevelSpeed() { return 1 + (ENEMY_LEVEL_STEP[currentDiff] || 0.035) * (Math.min(Math.max(currentWave, 1), 10) - 1); }
 function enemyDescentMult() { return (currentMode === 'moderno' ? 0.78 : 1) * ENEMY_DESCENT_BOOST * lunaticEnemyBoost() * enemyLevelSpeed(); }   // +18 % al bajar en Lunático
 let activeBoss = null;
@@ -926,11 +936,11 @@ let difficultySettings = {
     //    y frecuencia de habilidades, pero con tope de balas en pantalla y avisos que nunca desaparecen.
     // enemyDef / bossDef: multiplican la resistencia (el daño que recibes se divide por este valor).
     // dropMult: multiplica la probabilidad de que caigan power-ups. invulMs: invulnerabilidad tras recibir un golpe.
-    facil:    { spawnRate: 0.009, enemySpawnRate: 0.0055, maxEnemies: 7,  bulletSpeed: 2.6, enemySpeedMult: 0.72, bulletDensity: 0.26, bulletIntervalMult: 2.8,  maxEnemyBullets: 34,  enemyDef: 0.75, bossDef: 0.80, dropMult: 1.35, invulMs: 2600 },
-    medio:    { spawnRate: 0.017, enemySpawnRate: 0.0085, maxEnemies: 9,  bulletSpeed: 4.0, enemySpeedMult: 1.0,  bulletDensity: 0.42, bulletIntervalMult: 1.95, maxEnemyBullets: 52,  enemyDef: 1.00, bossDef: 1.00, dropMult: 1.0,  invulMs: 2000 },
-    dificil:  { spawnRate: 0.030, enemySpawnRate: 0.012,  maxEnemies: 11, bulletSpeed: 5.5, enemySpeedMult: 1.35, bulletDensity: 0.60, bulletIntervalMult: 1.5,  maxEnemyBullets: 72,  enemyDef: 1.20, bossDef: 1.20, dropMult: 0.9,  invulMs: 1800 },
+    facil:    { spawnRate: 0.009, enemySpawnRate: 0.0055, maxEnemies: 7,  bulletSpeed: 2.6, enemySpeedMult: 0.72, bulletDensity: 0.26, bulletIntervalMult: 2.8,  maxEnemyBullets: 34,  enemyDef: 1.00, bossDef: 0.80, dropMult: 1.35, invulMs: 2600 },
+    medio:    { spawnRate: 0.017, enemySpawnRate: 0.0085, maxEnemies: 9,  bulletSpeed: 4.0, enemySpeedMult: 1.0,  bulletDensity: 0.42, bulletIntervalMult: 1.95, maxEnemyBullets: 52,  enemyDef: 1.30, bossDef: 1.00, dropMult: 1.0,  invulMs: 2000 },
+    dificil:  { spawnRate: 0.030, enemySpawnRate: 0.012,  maxEnemies: 11, bulletSpeed: 5.5, enemySpeedMult: 1.35, bulletDensity: 0.60, bulletIntervalMult: 1.5,  maxEnemyBullets: 72,  enemyDef: 1.70, bossDef: 1.20, dropMult: 0.9,  invulMs: 1800 },
     // LUNÁTICO: el más rápido, denso y resistente; aun así con tope de balas para que sea justo.
-    lunatico: { spawnRate: 0.042, enemySpawnRate: 0.016,  maxEnemies: 13, bulletSpeed: 6.8, enemySpeedMult: 1.65, bulletDensity: 0.78, bulletIntervalMult: 1.15, maxEnemyBullets: 95,  enemyDef: 1.40, bossDef: 1.40, dropMult: 0.8,  invulMs: 1600 }
+    lunatico: { spawnRate: 0.042, enemySpawnRate: 0.016,  maxEnemies: 13, bulletSpeed: 6.8, enemySpeedMult: 1.65, bulletDensity: 0.78, bulletIntervalMult: 1.15, maxEnemyBullets: 95,  enemyDef: 2.20, bossDef: 1.40, dropMult: 0.8,  invulMs: 1600 }
 };
 let currentDiff = 'medio';
 
@@ -2463,12 +2473,12 @@ class Enemy {
         if (this.y + this.height > playAreaH - 70) return; // a punto de salir: deja de disparar
 
         let dset = difficultySettings[currentDiff];
-        let speed = dset.bulletSpeed * 0.72; // orbes más lentos que las balas de jefe
+        let speed = dset.bulletSpeed * ENEMY_BULLET_SPEED_MULT; // orbes más lentos que las balas de jefe
         let cx = this.x + this.width / 2;
         let cy = this.y + this.height / 2;
         // Ataque PERIÓDICO: cada ~1.3-1.8 s (según dificultad y nivel). Las hadas menores del mini jefe
         // mantienen su cadencia fija de 0.8 s.
-        let cadence = this.cadenceFrames || Math.max(8, Math.round((60 + (this.levelIdx % 3) * 8) * (0.7 + dset.bulletIntervalMult * 0.5) / lunaticEnemyBoost()));
+        let cadence = this.cadenceFrames || Math.max(26, Math.round((60 + (this.levelIdx % 3) * 8) * (0.7 + dset.bulletIntervalMult * 0.5) * ENEMY_CADENCE_MULT / lunaticEnemyBoost()));
         const TELEGRAPH_FRAMES = this.cadenceFrames ? 12 : 18; // ~0.2s de aviso para las menores, ~0.3s para el resto
 
         if (this.t > 25) {
@@ -5036,7 +5046,7 @@ function gameLoop() {
                 let dx = (e.x + e.width/2) - bombEffect.x;
                 let dy = (e.y + e.height/2) - bombEffect.y;
                 if (Math.sqrt(dx*dx + dy*dy) < bombEffect.radius) {
-                    e.hp -= 5 / enemyDefenseFactor();
+                    e.hp -= 5 / enemyDefenseFactor(e);
                     if (e.hp <= 0) {
                         createExplosion(e.x + e.width/2, e.y + e.height/2, e.color, 80);
                         score += e.type * 50; minionReward(e); enemies.splice(j, 1);
@@ -5184,7 +5194,7 @@ function gameLoop() {
                         let dmg = b.isSuper ? 3 : (b.source === 'partner' ? 0.3 : (b.dmgMult || 1));
                         dmg *= (1 + (powerLevel - 1) * 0.04); // pequeño buff de daño en cada nivel de ataque
                         if (powerLevel >= 15) dmg *= 2;
-                        dmg /= enemyDefenseFactor(); // los enemigos aguantan más a medida que subes de nivel
+                        dmg /= enemyDefenseFactor(e); // los enemigos aguantan más a medida que subes de nivel
                         e.hp -= dmg;
                         createExplosion(b.x, b.y, b.color, 3, true); // golpe que no mata: sonido de impacto, no de explosión
                         if (b.pierce) b.hitList.push(e); else bullets.splice(i, 1);
@@ -17443,7 +17453,7 @@ const BombFX = (function () {
     }
     function hurtEnemy(e, d) {
         const j = enemies.indexOf(e); if (j < 0) return;
-        e.hp -= d / enemyDefenseFactor();
+        e.hp -= d / enemyDefenseFactor(e);
         if (e.hp <= 0) {
             createExplosion(e.x + e.width / 2, e.y + e.height / 2, e.color, lite() ? 30 : 70);
             score += e.type * 50; minionReward(e); enemies.splice(j, 1);
