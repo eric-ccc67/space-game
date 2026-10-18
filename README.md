@@ -1,3 +1,18 @@
+# Cambios v33 — Niveles 5-7 más llevaderos y animaciones de naves
+
+- **Vida de enemigos en niveles 5, 6 y 7 (Difícil y Lunático)**: `LATE_LEVEL_DEF_MULT` en `juego.js` reduce la defensa total de los enemigos comunes (Lunático ×0.38, Difícil ×0.50). El nivel 4 recibe la mitad del alivio para que no haya un salto raro. Con 6 partners y ataque 10, un enemigo en el nivel 5 de Lunático pasó de ~17× a ~6× de defensa. Pon `{ dificil: 1, lunatico: 1 }` para quitarlo.
+- **`naves_fx.js`** (nuevo): animaciones propias para las 7 naves, sin tocar sprites ni hitbox: Tanque (escape doble y humo) · Sniper (cintas de energía y destello de mira) · Ligera (líneas de velocidad y arcos eléctricos) · Omega (anillo de plasma con perlas, núcleo y brasas) · Reimu (pétalos y destellos) · Marisa (lluvia de estrellitas y aura) · Goku (aura de ki con llamas y chispas azules). Todas con destello al disparar.
+
+---
+
+# Cambios v32 — Aliados rediseñados y tarjetas animadas
+
+- **`aliados.js`** (nuevo): cada nave tiene su propio tipo de aliado con sprite animado: Tanque = mini-tanques con orugas · Sniper = drones-mira · Ligera = drones-rayo · Omega = núcleos de plasma · Reimu = orbes yin-yang · Marisa = estrellas mágicas · **Goku = sus amigos al estilo del manga de Toriyama** (monje calvo de seis puntos, guerrero de pelo largo con cicatriz, luchador de tres ojos, muñequito pálido, guerrero verde con antenas y capa, y el niño del gi naranja). Los disparos de cada aliado toman el color de su diseño.
+- **Formación ordenada**: los aliados ya no orbitan revueltos; se colocan en una "V" detrás de la nave (1º izquierda, 2º derecha, 3º izquierda...) y te siguen con suavidad. Ajustes en la cabecera de `aliados.js` (`SLOT_X`, `SLOT_Y`, `SC`).
+- **`hud_tarjetas.js`** (nuevo): las tarjetas de ATAQUE, POWER, GRAZE y ALIADOS ahora son animadas (cristal giratorio, orbe con rayos, nave con bala orbitando, sprites reales de tus aliados), con iconos mucho más grandes, borde que respira, reflejo que barre y números que saltan al cambiar. Funciona en el panel lateral y en el HUD inferior del móvil vertical. Si el archivo no carga, el juego usa el HUD de siempre.
+
+---
+
 # Cambios v30 — Jefes con poderes únicos (Touhou 6 / Undertale / Deltarune)
 
 Los **8 jefes principales** (los 7 de nivel + EL INVASOR; los mini jefes no se tocaron) tienen ataques nuevos, coherentes con el nombre de su poder, y **sprites de balas propios** por jefe. Todo vive en la carpeta nueva `jefes/` (se carga al final de `index.html`, no modifica `juego.js`, `choque.js` ni `perfil.js`).

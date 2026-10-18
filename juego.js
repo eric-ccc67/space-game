@@ -759,6 +759,10 @@ const DEF_PER_ATTACK_ENEMY = 0.10;  // v31: +10 % por cada Nivel de Ataque (ante
 const DEF_PER_PARTNER_ENEMY = 0.10; // v31: +10 % por cada partner activo (los partners suman mucho daño)
 const DEF_DOUBLEFIRE_ENEMY = 1.30;  // v31: mientras dura el power-up de disparo doble
 const DEF_SUPERSHOT_ENEMY = 1.15;   // v31: mientras dura el super disparo
+// v33: ALIVIO en los niveles 5, 6 y 7 (Difícil y Lunático): la defensa total de los enemigos comunes se multiplica por este valor
+// (0.40 = tienen ~60 % menos defensa que antes). Pon 1 para quitarlo. Nunca baja de 1 (siempre mueren de algún golpe).
+const LATE_LEVEL_DEF_MULT = { dificil: 0.50, lunatico: 0.38 };
+const LATE_LEVEL_FROM = 4;               // desde el nivel 5 el alivio es completo; el nivel 4 lo recibe a medias (transición suave, sin saltos raros)
 const DEF_PER_LEVEL_BOSS = 0.10;    // jefes y mini jefes: menos por nivel porque su vida ya sube por nivel
 const DEF_PER_ATTACK_BOSS = 0.05;
 const POWERUP_DROP_LOSS_PER_LEVEL = 0.05;   // cada nivel baja ~5 % la probabilidad de soltar power-ups
@@ -805,7 +809,10 @@ function enemyDefenseFactor(e) {
     const now = Date.now();
     const nPartners = (typeof partners !== 'undefined' && partners) ? partners.length : 0;
     const pu = (powerUps.doubleFire > now ? DEF_DOUBLEFIRE_ENEMY : 1) * (powerUps.superShot > now ? DEF_SUPERSHOT_ENEMY : 1);
-    return (1 + levelDefenseStep() * DEF_PER_LEVEL_ENEMY) * (1 + (powerLevel - 1) * DEF_PER_ATTACK_ENEMY) * (1 + nPartners * DEF_PER_PARTNER_ENEMY) * pu * lunatic * lunaticEnemyBoost();   // +18 % de vida en Lunático
+    let f = (1 + levelDefenseStep() * DEF_PER_LEVEL_ENEMY) * (1 + (powerLevel - 1) * DEF_PER_ATTACK_ENEMY) * (1 + nPartners * DEF_PER_PARTNER_ENEMY) * pu * lunatic * lunaticEnemyBoost();
+    const relief = LATE_LEVEL_DEF_MULT[currentDiff];
+    if (relief) { const k = Math.max(0, Math.min(1, (currentLevelIndex() - (LATE_LEVEL_FROM - 2)) / 2)); if (k > 0) f = Math.max(1, f * (1 + (relief - 1) * k)); }   // v33: niveles 5-7 más llevaderos (rampa en los niveles 3-4)
+    return f;   // +18 % de vida en Lunático
 }
 function bossDefenseFactor() {
     if (currentMode === 'clasico') return 1;
@@ -15575,32 +15582,38 @@ const HUD = (function () {
         else tt(grazePoints + '/' + GRAZE_MAX, P + IW2, y, '#c8f0cf', 9, 'right');
         y += 8; tbar(P, y, IW2, 6, bombFrac(), bombStock >= BOMB_MAX ? '#ffb000' : '#2fb34f', bombStock >= BOMB_MAX ? '#fff27a' : '#8cff9d', 12); y += 20;
 
-        // ---- Power (nivel de ataque 1-15): barra violeta como la de Touhou
-        const maxed = powerLevel >= MAX_POWER_LEVEL;
-        tt('Poder', P, y, '#ff8a8a', 11, 'left');
-        tt(maxed ? 'MAX' : 'Lv.' + powerLevel + '/' + MAX_POWER_LEVEL, P + IW2, y, maxed ? (Math.floor(t / 160) % 2 ? '#fff' : '#9ee8ff') : tierCol(powerLevel), 10, 'right', { glow: tierCol(powerLevel) });
-        y += 8; tbar(P, y, IW2, 10, powerLevel / MAX_POWER_LEVEL, '#6b3cff', '#d06bff', MAX_POWER_LEVEL);
-        if (st.lvFx > 0) {
-            const k = 1 - st.lvFx, bx = P + IW2 / 2;
-            ctx.globalAlpha = Math.min(1, st.lvFx * 1.6); tt('¡NIVEL ARRIBA!', bx, y - 12 - k * 14, '#fff', 10 + (1 - k) * 3, 'center', { glow: tierCol(powerLevel) }); ctx.globalAlpha = 1;
-            st.lvSparks.forEach(sp => { ctx.fillStyle = tierCol(powerLevel); ctx.globalAlpha = 1 - sp.t / 40; ctx.fillRect(bx + Math.cos(sp.a) * sp.t * sp.v * 1.6, y + 5 + Math.sin(sp.a) * sp.t * sp.v, 3, 3); });
-            ctx.globalAlpha = 1;
-        }
-        y += 14; tbar(P, y, IW2, 4, maxed ? 1 : enemiesDefeatedForPower / KILLS_PER_LEVEL, '#b86a00', '#ffb040', 0); y += 22;
+        // v32: tarjetas animadas (hud_tarjetas.js). Si ese archivo no carga, se usa el bloque clásico de abajo.
+        if (window.HudCards) {
+            y = HudCards.side({ P, y: y - 12, IW: IW2, t, tt, tbar, st, tier: tierCol, v: { pl: powerLevel, plMax: MAX_POWER_LEVEL, kills: enemiesDefeatedForPower / KILLS_PER_LEVEL, pp: powerPoints, graze: grazePoints, bombFrac: bombFrac(), bombStock, bombReady: !!mPromptActive, partners: partners.length, partnerRatio: partnerPoints / 150 } }) + 10;
+        } else {
+            // ---- Power (nivel de ataque 1-15): barra violeta como la de Touhou
+            const maxed = powerLevel >= MAX_POWER_LEVEL;
+            tt('Poder', P, y, '#ff8a8a', 11, 'left');
+            tt(maxed ? 'MAX' : 'Lv.' + powerLevel + '/' + MAX_POWER_LEVEL, P + IW2, y, maxed ? (Math.floor(t / 160) % 2 ? '#fff' : '#9ee8ff') : tierCol(powerLevel), 10, 'right', { glow: tierCol(powerLevel) });
+            y += 8; tbar(P, y, IW2, 10, powerLevel / MAX_POWER_LEVEL, '#6b3cff', '#d06bff', MAX_POWER_LEVEL);
+            if (st.lvFx > 0) {
+                const k = 1 - st.lvFx, bx = P + IW2 / 2;
+                ctx.globalAlpha = Math.min(1, st.lvFx * 1.6); tt('¡NIVEL ARRIBA!', bx, y - 12 - k * 14, '#fff', 10 + (1 - k) * 3, 'center', { glow: tierCol(powerLevel) }); ctx.globalAlpha = 1;
+                st.lvSparks.forEach(sp => { ctx.fillStyle = tierCol(powerLevel); ctx.globalAlpha = 1 - sp.t / 40; ctx.fillRect(bx + Math.cos(sp.a) * sp.t * sp.v * 1.6, y + 5 + Math.sin(sp.a) * sp.t * sp.v, 3, 3); });
+                ctx.globalAlpha = 1;
+            }
+            y += 14; tbar(P, y, IW2, 4, maxed ? 1 : enemiesDefeatedForPower / KILLS_PER_LEVEL, '#b86a00', '#ffb040', 0); y += 22;
 
-        // ---- Graze (número grande, como en Touhou)
-        tt('Roce', P, y, '#7dffa0', 11, 'left');
-        tt(String(grazePoints), P + IW2, y, '#e8fff0', 13, 'right');
-        y += 24;
+            // ---- Graze (número grande, como en Touhou)
+            tt('Roce', P, y, '#7dffa0', 11, 'left');
+            tt(String(grazePoints), P + IW2, y, '#e8fff0', 13, 'right');
+            y += 24;
 
-        // ---- Partners (orbes) + barra del siguiente
-        tt('Aliados', P, y, '#8fe0ff', 11, 'left');
-        const ostep = (IW2 - 70) / 6;
-        for (let i = 0; i < 6; i++) {
-            const cx = P + 66 + ostep / 2 + i * ostep, on = i < partners.length, pop = (on && i === partners.length - 1 && st.partnerFx > 0) ? 1 + st.partnerFx * 0.7 : 1;
-            orb(cx, y - 4 + (on ? Math.sin(t * 0.005 + i) * 1.2 : 0), 5.5 * pop, PCOL[i], on, t);
+            // ---- Partners (orbes) + barra del siguiente
+            tt('Aliados', P, y, '#8fe0ff', 11, 'left');
+            const ostep = (IW2 - 70) / 6;
+            for (let i = 0; i < 6; i++) {
+                const cx = P + 66 + ostep / 2 + i * ostep, on = i < partners.length, pop = (on && i === partners.length - 1 && st.partnerFx > 0) ? 1 + st.partnerFx * 0.7 : 1;
+                orb(cx, y - 4 + (on ? Math.sin(t * 0.005 + i) * 1.2 : 0), 5.5 * pop, PCOL[i], on, t);
+            }
+            y += 7; tbar(P, y, IW2, 4, partners.length >= 6 ? 1 : partnerPoints / 150, '#1a8cc0', '#7fe0ff', 0); y += 20;
+
         }
-        y += 7; tbar(P, y, IW2, 4, partners.length >= 6 ? 1 : partnerPoints / 150, '#1a8cc0', '#7fe0ff', 0); y += 20;
 
         // ---- Continue (rombos)
         tt('Continuar', P, y, '#d2b8ff', 10, 'left');
@@ -15684,28 +15697,33 @@ const HUD = (function () {
         if (st.lifeLoss > 0) heart(lx + 8 + Math.min(lives, 8) * hstep, y + 26, hr, '#a33', null, true);
         y += ah + 4;
 
-        // fila B: ataque (pips) + partners + bomba
-        const bh = 30, aw = IW * 0.56;
-        panel(P, y, aw, bh, tierCol(powerLevel), st.lvFx);
-        txt('ATQ ' + (powerLevel >= MAX_POWER_LEVEL ? 'MAX' : 'Lv.' + powerLevel), P + 5, y + 10, tierCol(powerLevel), 6, 'left', tierCol(powerLevel));
-        pips(P + 5, y + 14, aw - 10, 6, powerLevel, t);
-        bar(P + 5, y + 23, aw - 10, 4, powerLevel >= MAX_POWER_LEVEL ? 1 : enemiesDefeatedForPower / KILLS_PER_LEVEL, '#fa0', { seg: 13 });
-        if (st.lvFx > 0.3) { ctx.globalAlpha = st.lvFx; txt('¡NIVEL ARRIBA!', P + aw - 5, y + 10, '#fff', 6, 'right', tierCol(powerLevel)); ctx.globalAlpha = 1; }
-        const px0 = P + aw + 5, pw = IW - aw - 5, bomb = !!mPromptActive;
-        panel(px0, y, pw, bh, bomb ? '#fd2' : '#0cf', bomb ? 0.5 + 0.5 * Math.sin(t * 0.012) : st.partnerFx);
-        const ostep = (pw - 8) / 6;
-        for (let i = 0; i < 6; i++) orb(px0 + 4 + ostep / 2 + i * ostep, y + 10, 3.2, PCOL[i], i < partners.length, t);
-        txt(bomb ? ('BOMBA x' + bombStock + '  Z') : 'BOMBA ' + Math.floor(clamp(grazePoints / GRAZE_MAX, 0, 1) * 100) + '%', px0 + pw / 2, y + 26, bomb ? (Math.floor(t / 130) % 2 ? '#ff0' : '#fff') : '#9d9', 6, 'center', bomb ? '#fa0' : null);
-        y += bh + 4;
+        // v32: tarjetas animadas en fila (hud_tarjetas.js). Sin ese archivo, se usan las filas clásicas B y C.
+        if (window.HudCards) {
+            y = HudCards.bottom({ P, y, IW, t, txt, bar, st, tier: tierCol, v: { pl: powerLevel, plMax: MAX_POWER_LEVEL, kills: enemiesDefeatedForPower / KILLS_PER_LEVEL, pp: powerPoints, graze: grazePoints, bombFrac: bombFrac(), bombStock, bombReady: !!mPromptActive, partners: partners.length, partnerRatio: partnerPoints / 150 } });
+        } else {
+            // fila B: ataque (pips) + partners + bomba
+            const bh = 30, aw = IW * 0.56;
+            panel(P, y, aw, bh, tierCol(powerLevel), st.lvFx);
+            txt('ATQ ' + (powerLevel >= MAX_POWER_LEVEL ? 'MAX' : 'Lv.' + powerLevel), P + 5, y + 10, tierCol(powerLevel), 6, 'left', tierCol(powerLevel));
+            pips(P + 5, y + 14, aw - 10, 6, powerLevel, t);
+            bar(P + 5, y + 23, aw - 10, 4, powerLevel >= MAX_POWER_LEVEL ? 1 : enemiesDefeatedForPower / KILLS_PER_LEVEL, '#fa0', { seg: 13 });
+            if (st.lvFx > 0.3) { ctx.globalAlpha = st.lvFx; txt('¡NIVEL ARRIBA!', P + aw - 5, y + 10, '#fff', 6, 'right', tierCol(powerLevel)); ctx.globalAlpha = 1; }
+            const px0 = P + aw + 5, pw = IW - aw - 5, bomb = !!mPromptActive;
+            panel(px0, y, pw, bh, bomb ? '#fd2' : '#0cf', bomb ? 0.5 + 0.5 * Math.sin(t * 0.012) : st.partnerFx);
+            const ostep = (pw - 8) / 6;
+            for (let i = 0; i < 6; i++) orb(px0 + 4 + ostep / 2 + i * ostep, y + 10, 3.2, PCOL[i], i < partners.length, t);
+            txt(bomb ? ('BOMBA x' + bombStock + '  Z') : 'BOMBA ' + Math.floor(clamp(grazePoints / GRAZE_MAX, 0, 1) * 100) + '%', px0 + pw / 2, y + 26, bomb ? (Math.floor(t / 130) % 2 ? '#ff0' : '#fff') : '#9d9', 6, 'center', bomb ? '#fa0' : null);
+            y += bh + 4;
 
-        // fila C: barras power / graze / partner + nivel y tiempo
-        const cw3 = (IW - 8) / 3;
-        [['POWER', powerPoints / 150, '#f33', '#f88'], ['GRAZE', bombFrac(), bomb ? '#fd2' : '#3f3', '#8f8'], ['PARTNER', partners.length >= 6 ? 1 : partnerPoints / 150, '#0cf', '#8ef']].forEach((b, i) => {
-            const bx = P + i * (cw3 + 4);
-            txt(b[0], bx, y + 7, b[3], 6, 'left');
-            bar(bx, y + 10, cw3, 6, b[1], b[2], { glow: 4, seg: 8 });
-        });
-        y += 20;
+            // fila C: barras power / graze / partner + nivel y tiempo
+            const cw3 = (IW - 8) / 3;
+            [['POWER', powerPoints / 150, '#f33', '#f88'], ['GRAZE', bombFrac(), bomb ? '#fd2' : '#3f3', '#8f8'], ['PARTNER', partners.length >= 6 ? 1 : partnerPoints / 150, '#0cf', '#8ef']].forEach((b, i) => {
+                const bx = P + i * (cw3 + 4);
+                txt(b[0], bx, y + 7, b[3], 6, 'left');
+                bar(bx, y + 10, cw3, 6, b[1], b[2], { glow: 4, seg: 8 });
+            });
+            y += 20;
+        }
         const info = levelInfo();
         txt('NIVEL ' + info.n + '/' + info.tot, P, y + 7, '#d8b0ff', 6, 'left');
         if (info.phase === 'wave') txt(info.name + '  ' + info.secs + 's', P + IW, y + 7, '#9cf', 6, 'right');
