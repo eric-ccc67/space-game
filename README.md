@@ -1,3 +1,14 @@
+# Cambios v34 — Poses de las naves, COMBO estilo Devil May Cry y Modo Arcoíris
+
+- **Poses del cuerpo de cada nave** (`naves_fx.js`): se inclinan al moverse (la Ligera mucho, el Tanque poco), dan una patada al disparar (el Sniper como un cañón) y hacen un **giro completo con onda expansiva al lanzar una bomba**. El punto verde del hitbox no se mueve.
+- **`combo.js`** (nuevo): COMBO que sube con cada enemigo derrotado (el graze lo mantiene vivo; dura ~2.5 s sin kills y se rompe si te golpean).
+  - Rangos D · C · B · A · S · SS · SSS (3 / 8 / 15 / 25 / 40 / 60 / 80) con letra inclinada, palabra, color, temblor, sonido y destello del borde. El número "salta" con cada kill; al romperse el texto se parte (COMBO BREAK); si termina por tiempo cobras `n×n` puntos.
+  - **En x50 (y cada +50): MODO ARCOÍRIS de 12 s** → escudo + disparo doble + súper disparo + 1 bomba + lluvia de power-ups, el combo no caduca y la pantalla se tiñe de arcoíris con marco y confeti.
+  - **Optimizado**: el arcoíris y el marco son una capa CSS que compone la GPU (el lienzo no pinta nada extra), confeti limitado (26 / 10 en bajo rendimiento) y sin mezcla de color en modo de bajo rendimiento.
+  - Ajustes arriba del archivo: `WIN`, `RAINBOW_AT`, `RAINBOW_FRAMES`, `END_BONUS`. Consola: `Combo.kill()` suma 1 combo; `Combo.startRainbow()` lanza el premio.
+
+---
+
 # Cambios v33 — Niveles 5-7 más llevaderos y animaciones de naves
 
 - **Vida de enemigos en niveles 5, 6 y 7 (Difícil y Lunático)**: `LATE_LEVEL_DEF_MULT` en `juego.js` reduce la defensa total de los enemigos comunes (Lunático ×0.38, Difícil ×0.50). El nivel 4 recibe la mitad del alivio para que no haya un salto raro. Con 6 partners y ataque 10, un enemigo en el nivel 5 de Lunático pasó de ~17× a ~6× de defensa. Pon `{ dificil: 1, lunatico: 1 }` para quitarlo.

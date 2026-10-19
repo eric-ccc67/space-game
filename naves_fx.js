@@ -12,6 +12,9 @@
 //    6 Marisa  → lluvia de estrellitas doradas/moradas y aura mágica
 //    7 Goku    → aura de ki con llamas puntiagudas, chispas eléctricas azules y partículas de ki
 //  Todas: destello al disparar y escape que crece al moverte. En modo de bajo rendimiento se reduce todo.
+//  v34 — POSES DEL CUERPO: la nave se inclina y se estira al moverse, "patea" hacia atrás al disparar (cada nave con su
+//  fuerza: el Sniper como un cañón, la Ligera casi nada) y hace un giro completo con onda expansiva al lanzar una bomba.
+//  El centro (punto verde del hitbox) no se mueve: todo gira/escala alrededor de él.
 //  Desactivar: quita <script src="naves_fx.js"> de index.html. Se carga DESPUÉS de juego.js.
 // ============================================================================================
 (function () {
@@ -151,16 +154,71 @@
         ctx.restore();
     }
 
+
+    // ---------------------------------------------------------------- POSES DEL CUERPO (inclinación, retroceso, giro de bomba)
+    const POSE = {            // lean = inclinación por px/cuadro · max = tope · squash = estrechamiento al correr · recoil = patada al disparar · idle = respiración
+        1: { lean: 0.030, max: 0.20, squash: 0.014, recoil: 0.16, idle: 0.012 },
+        2: { lean: 0.036, max: 0.24, squash: 0.010, recoil: 0.24, idle: 0.008 },
+        3: { lean: 0.062, max: 0.42, squash: 0.008, recoil: 0.06, idle: 0.010 },
+        4: { lean: 0.026, max: 0.16, squash: 0.016, recoil: 0.13, idle: 0.022 },
+        5: { lean: 0.046, max: 0.30, squash: 0.010, recoil: 0.08, idle: 0.014 },
+        6: { lean: 0.052, max: 0.34, squash: 0.010, recoil: 0.09, idle: 0.016 },
+        7: { lean: 0.044, max: 0.28, squash: 0.011, recoil: 0.11, idle: 0.012 }
+    };
+    const K = { lean: 0, sy: 1, rec: 0, bombT: 0, bombWas: false, ls: 0, lx: null, ly: null, t: 0, vx: 0, vy: 0, ring: 0 };
+    const BOMB_FRAMES = 38;
+    function tickPose(p) {
+        const cx = p.x, cy = p.y;
+        if (K.lx === null || Math.abs(cx - K.lx) + Math.abs(cy - K.ly) > 90) { K.lx = cx; K.ly = cy; K.lean = 0; K.sy = 1; K.rec = 0; K.bombT = 0; }
+        K.t++; K.vx = cx - K.lx; K.vy = cy - K.ly; K.lx = cx; K.ly = cy;
+        const P = POSE[p.type] || POSE[1];
+        K.lean += (Math.max(-P.max, Math.min(P.max, K.vx * P.lean * 4)) - K.lean) * 0.22;
+        K.sy += ((1 + Math.max(-0.07, Math.min(0.10, -K.vy * 0.014))) - K.sy) * 0.25;
+        if ((p.lastShoot || 0) !== K.ls) { K.ls = p.lastShoot || 0; K.rec = 1; }
+        K.rec *= 0.78;
+        const bomb = (typeof bombEffect !== 'undefined' && bombEffect && bombEffect.active);
+        if (bomb && !K.bombWas) { K.bombT = BOMB_FRAMES; K.ring = 0; }
+        K.bombWas = !!bomb; if (K.bombT > 0) { K.bombT--; K.ring++; }
+    }
+    function poseXform(p) {
+        const P = POSE[p.type] || POSE[1], sp = Math.min(1, Math.abs(K.vx) / 4);
+        let rot = K.lean * 0.55, sx = 1 - Math.abs(K.vx) * P.squash, sy = K.sy;
+        const breath = 1 + P.idle * S(K.t * 0.08); sx *= breath; sy *= breath;
+        sy *= 1 - K.rec * P.recoil * 0.55; sx *= 1 + K.rec * P.recoil * 0.4;       // patada al disparar
+        if (p.type === 6) rot += S(K.t * 0.07) * 0.035;                              // Marisa se mece sobre su escoba
+        if (p.type === 3 && sp > 0.5) rot += S(K.t * 0.9) * 0.02;                    // la Ligera vibra a toda velocidad
+        if (K.bombT > 0) {                                                           // giro completo con "pop" al lanzar la bomba
+            const k = 1 - K.bombT / BOMB_FRAMES, e = 1 - Math.pow(1 - k, 3);
+            rot += e * TAU; const pop = 1 + 0.5 * S(Math.PI * Math.min(1, k * 1.15)); sx *= pop; sy *= pop;
+        }
+        return { rot, sx: Math.max(0.6, sx), sy: Math.max(0.6, sy) };
+    }
+    function drawBombRing(p, cx, cy) {
+        if (K.bombT <= 0 && K.ring > BOMB_FRAMES) return;
+        const k = Math.min(1, K.ring / BOMB_FRAMES), col = (COL[p.type] || COL[1])[1], r = 12 + k * 110;
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = (1 - k) * 0.9; ctx.strokeStyle = col; ctx.lineWidth = 4 * (1 - k) + 1; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke();
+        ctx.globalAlpha = (1 - k) * 0.5; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, r * 0.62, 0, TAU); ctx.stroke();
+        if (k < 0.45 && !low()) { ctx.globalAlpha = (0.45 - k) * 1.6; ctx.drawImage(glow(col, 36), cx - 36, cy - 36, 72, 72); }
+        ctx.restore();
+    }
+
     // ---------------------------------------------------------------- enganche
     const prevDraw = Player.prototype.draw;
     Player.prototype.draw = function () {
         if (typeof currentMode !== 'undefined' && currentMode === 'clasico') return prevDraw.call(this);
-        if (typeof Cine !== 'undefined' && Cine.hidesPlayer && Cine.hidesPlayer()) { PT.length = 0; return prevDraw.call(this); }
-        if (Date.now() < invulnerableUntil && Math.floor(Date.now() / 150) % 2 === 0) return prevDraw.call(this);   // parpadeo de invulnerabilidad: la nave no se dibuja
+        if (typeof Cine !== 'undefined' && Cine.hidesPlayer && Cine.hidesPlayer()) { PT.length = 0; K.lx = null; return prevDraw.call(this); }
+        try { tickPose(this); } catch (e) {}
+        const blink = Date.now() < invulnerableUntil && Math.floor(Date.now() / 150) % 2 === 0;
+        if (blink && K.bombT <= 0) return prevDraw.call(this);                     // parpadeo de invulnerabilidad (salvo durante el giro de la bomba)
         const cx = this.x + this.width / 2, cy = this.y + this.height / 2;
         try { step(this, cx, cy); drawBehind(this, cx, cy); drawParticles(); } catch (e) {}
-        prevDraw.call(this);
-        try { drawFront(this, cx, cy); } catch (e) {}
+        let xf = null; try { xf = poseXform(this); } catch (e) {}
+        const iu = invulnerableUntil; if (blink) invulnerableUntil = 0;          // la nave se ve entera mientras gira
+        ctx.save();
+        if (xf) { ctx.translate(cx, cy); ctx.rotate(xf.rot); ctx.scale(xf.sx, xf.sy); ctx.translate(-cx, -cy); }
+        try { prevDraw.call(this); } finally { ctx.restore(); invulnerableUntil = iu; }
+        try { drawFront(this, cx, cy); drawBombRing(this, cx, cy); } catch (e) {}
     };
     window.NavesFX = { particles: () => PT.length };
 })();
