@@ -11797,14 +11797,19 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
     };
     const lateCache = {};
     function D() {
-        const b = DIFF[currentDiff] || DIFF.medio, L = lunaticLate();
-        if (!L) return b;
-        // Lunático nivel 5-7: más enemigos con función a la vez, aparecen más seguido y las mini secciones traen más blasters/bombas
-        return lateCache[L] || (lateCache[L] = Object.assign({}, b, {
-            roleMax: b.roleMax + L, rolePeriod: Math.round(b.rolePeriod * (1 - 0.14 * L)),
-            rowN: b.rowN + (L >= 2 ? 1 : 0), lockN: b.lockN + (L >= 2 ? 1 : 0), burstN: b.burstN + L
-        }));
+        const b0 = DIFF[currentDiff] || DIFF.medio, L = lunaticLate();
+        let b = b0;
+        if (L) {
+            // Lunático nivel 5-7: más enemigos con función a la vez, aparecen más seguido y las mini secciones traen más blasters/bombas
+            b = lateCache[L] || (lateCache[L] = Object.assign({}, b0, {
+                roleMax: b0.roleMax + L, rolePeriod: Math.round(b0.rolePeriod * (1 - 0.14 * L)),
+                rowN: b0.rowN + (L >= 2 ? 1 : 0), lockN: b0.lockN + (L >= 2 ? 1 : 0), burstN: b0.burstN + L
+            }));
+        }
+        // IA adaptativa (ia_adaptativa.js): si el jugador está muy fuerte, las mini secciones son más rápidas y traen más cosas.
+        return (window.AIAdapt && AIAdapt.scaleEvent) ? AIAdapt.scaleEvent(b) : b;
     }
+    const evTimeK = () => (window.AIAdapt && AIAdapt.evTime) ? AIAdapt.evTime() : 1;      // <1 = las mini secciones arrancan antes
 
     // ------------------------------------------------------------------ sonido
     function tone(type, f0, f1, dur, vol) {
@@ -12944,7 +12949,7 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
         const alive = ev.spawned.some(e => enemies.includes(e));
         const busy = hazards.some(h => h.kind === 'wave' || h.evLong || (h.kind === 'beam' && h.phase === 'fire'));
         const scripting = !!ev.script && !ev.scriptDone;
-        if ((!alive && !busy && !scripting && ev.runT > 30) || ev.runT > EVENT_TIMEOUT) { ev = null; evIdx++; evCool = 90; }
+        if ((!alive && !busy && !scripting && ev.runT > 30) || ev.runT > EVENT_TIMEOUT) { ev = null; evIdx++; evCool = Math.round(90 * evTimeK()); }
     }
 
     // ====================================================================
@@ -13002,7 +13007,9 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
 
             // programación de la mini sección
             if (evCool > 0) evCool--;
-            if (!ev && evCool <= 0 && evIdx < EVENT_TIMES.length && waveTimer >= EVENT_TIMES[evIdx] && waveTimer < dur - 300) startEvent();
+            const evSlots = EVENT_TIMES.length + ((window.AIAdapt && AIAdapt.extraEvent && AIAdapt.extraEvent()) ? 1 : 0);   // 4.ª mini sección si el jugador es muy fuerte
+            const evAt = evIdx < EVENT_TIMES.length ? EVENT_TIMES[evIdx] : 2250;
+            if (!ev && evCool <= 0 && evIdx < evSlots && waveTimer >= Math.round(evAt * evTimeK()) && waveTimer < dur - 300) startEvent();
             if (ev) stepEvent();
 
             // enemigos sueltos con función (no durante una mini sección ni al final de la oleada)

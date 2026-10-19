@@ -29,7 +29,7 @@
     const FONT = s => s + 'px "Press Start 2P", monospace';
     const lowFx = () => (typeof performanceMode !== 'undefined' && performanceMode);
     const KD = { facil: 0.8, medio: 1, dificil: 1.15, lunatico: 1.3 };
-    const K = () => KD[currentDiff] || 1;                       // intensidad según dificultad
+    const K = () => (KD[currentDiff] || 1) * ((window.AIAdapt && AIAdapt.evK) ? AIAdapt.evK() : 1);                       // intensidad según dificultad
     const pcx = () => player.x + player.width / 2;
     const pcy = () => player.y + player.height / 2;
 

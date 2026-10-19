@@ -1,3 +1,20 @@
+# Cambios v36 — IA adaptativa (enemigos y jefes se adaptan a qué tan fuerte eres)
+
+- **`ia_adaptativa.js`** (nuevo, se carga después de `combo.js`): mide tu FUERZA con todo lo que tenga que ver con poderes y la convierte en una AMENAZA (0 a 1, sube rápido y baja despacio).
+  - **Qué cuenta**: Nivel de Ataque · partners · power-ups activos (doble, súper, escudo, parálisis) · poderes del Caos activos · stock de bombas · tamaño del COMBO · Modo Arcoíris · **poderes de combo (cuentan x4 por nivel, no x15)**.
+  - **Qué pasa cuando estás muy fuerte** (EFECTO = amenaza × factor de dificultad: Fácil 0.6 · Medio 1 · Difícil 1.15 · Lunático 1.3):
+    - Los enemigos **bajan más rápido** (hasta +30 %).
+    - Sus disparos apuntados salen **en x3** (abanico de 3 balas).
+    - **Aparecen más enemigos** (hasta +55 % de ritmo, +3 a la vez, filas en formación más seguidas).
+    - Los enemigos tienen **más defensa** (hasta +50 %).
+    - **Jefes y mini jefes**: **más defensa según qué tan fuerte seas** (hasta +60 %), descansan menos entre habilidades (-12 %) y sus patrones son un poco más densos (+8 %).
+    - **Mini secciones (eventos especiales)**: arrancan antes, avisan menos, ondas más rápidas, más blasters/bombas/enemigos con función, y con amenaza alta hay una **4.ª mini sección** por oleada.
+  - Todos los números están en el objeto `CFG` al inicio del archivo. Los esbirros de mini jefe y los enemigos de combo no se tocan.
+  - Cambios en archivos existentes (mínimos y con guarda, si quitas el script todo sigue igual): `juego.js` (la función `D()`, el arranque de mini secciones y la pausa entre ellas en `WaveAttacks`) y `eventos_jefes.js` (intensidad `K()`).
+  - **Consola**: `AIAdapt.state` (fuerza, amenaza y efecto) · `AIAdapt.force(0.8)` fuerza la amenaza para probar (`AIAdapt.force(null)` la libera) · `AIAdapt.hud(true)` muestra un medidor de AMENAZA en pantalla · `AIAdapt.cfg.enabled = false` apaga la IA.
+
+---
+
 # Cambios v34 — Poses de las naves, COMBO estilo Devil May Cry y Modo Arcoíris
 
 - **Poses del cuerpo de cada nave** (`naves_fx.js`): se inclinan al moverse (la Ligera mucho, el Tanque poco), dan una patada al disparar (el Sniper como un cañón) y hacen un **giro completo con onda expansiva al lanzar una bomba**. El punto verde del hitbox no se mueve.
