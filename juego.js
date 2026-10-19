@@ -5139,7 +5139,7 @@ function gameLoop() {
                 }
             } else if (activeBoss && activeBoss.state === 'active') {
                 if (!(b.pierce && b.hitList.includes(activeBoss)) && b.x < activeBoss.x + activeBoss.width && b.x + b.width > activeBoss.x && b.y < activeBoss.y + activeBoss.height && b.y + b.height > activeBoss.y) {
-                    let dmg = b.isSuper ? 3 : (b.source === 'partner' ? 0.3 : (b.dmgMult || 1));
+                    let dmg = b.isSuper ? 3 : (b.source === 'partner' ? (0.3 + (window.Combo ? Combo.partnerBonus() : 0)) : (b.dmgMult || 1));
                     dmg *= (1 + (powerLevel - 1) * 0.04); // pequeño buff de daño en cada nivel de ataque
                     if (powerLevel >= 15) dmg *= 2; 
                     dmg *= (activeBoss.defenseMult || 1); // más resistente desde que entró en modo especial
@@ -5168,7 +5168,7 @@ function gameLoop() {
                 }
             } else if (activeMiniBoss && activeMiniBoss.state === 'active') {
                 if (!(b.pierce && b.hitList.includes(activeMiniBoss)) && b.x < activeMiniBoss.x + activeMiniBoss.width && b.x + b.width > activeMiniBoss.x && b.y < activeMiniBoss.y + activeMiniBoss.height && b.y + b.height > activeMiniBoss.y) {
-                    let dmg = b.isSuper ? 3 : (b.source === 'partner' ? 0.3 : (b.dmgMult || 1));
+                    let dmg = b.isSuper ? 3 : (b.source === 'partner' ? (0.3 + (window.Combo ? Combo.partnerBonus() : 0)) : (b.dmgMult || 1));
                     dmg *= (1 + (powerLevel - 1) * 0.04); // pequeño buff de daño en cada nivel de ataque
                     if (powerLevel >= 15) dmg *= 2;
                     dmg *= (activeMiniBoss.defenseMult || 1); // más resistente desde que entró en modo especial
@@ -5189,6 +5189,7 @@ function gameLoop() {
                         createExplosion(e.x + e.width/2, e.y + e.height/2, e.color, 60);
                         score += 50;
                         minionReward(e);   // aliados del mini jefe: sueltan rojo (vida) + verde (graze) + naranja (poder)
+                        levelEnemiesDefeated++; Extras.onKill();   // combo.js: los esbirros del mini jefe mantienen/suben el combo
                         bullets.splice(i, 1);
                         enemies.splice(j, 1);
                         break;
@@ -5198,7 +5199,7 @@ function gameLoop() {
                 for (let j = enemies.length - 1; j >= 0; j--) {
                     let e = enemies[j];
                     if (!(b.pierce && b.hitList.includes(e)) && b.x < e.x + e.width && b.x + b.width > e.x && b.y < e.y + e.height && b.y + b.height > e.y) {
-                        let dmg = b.isSuper ? 3 : (b.source === 'partner' ? 0.3 : (b.dmgMult || 1));
+                        let dmg = b.isSuper ? 3 : (b.source === 'partner' ? (0.3 + (window.Combo ? Combo.partnerBonus() : 0)) : (b.dmgMult || 1));
                         dmg *= (1 + (powerLevel - 1) * 0.04); // pequeño buff de daño en cada nivel de ataque
                         if (powerLevel >= 15) dmg *= 2;
                         dmg /= enemyDefenseFactor(e); // los enemigos aguantan más a medida que subes de nivel

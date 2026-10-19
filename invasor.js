@@ -102,7 +102,7 @@
             if (!(b.x < x + w && b.x + b.width > x && b.y < y + h && b.y + b.height > y)) continue;
             if (b.pierce) { if (b.hitList) { if (b.hitList.includes(tok)) continue; b.hitList.push(tok); } }
             else bullets.splice(i, 1);
-            dmg += b.isSuper ? 3 : (b.source === 'partner' ? 0.4 : 1);
+            dmg += b.isSuper ? 3 : (b.source === 'partner' ? (0.4 + (window.Combo ? Combo.partnerBonus() : 0)) : 1);
         }
         return dmg;
     }
