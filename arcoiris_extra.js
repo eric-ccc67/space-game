@@ -186,7 +186,7 @@
     }
 
     // ---------------------------------------------------------------- lógica por cuadro
-    function bulletDamage(b) { return b.isSuper ? 3 : (b.source === 'partner' ? (0.3 + (window.Combo ? Combo.partnerBonus() : 0)) : (b.dmgMult || 1)); }
+    function bulletDamage(b) { return b.isSuper ? 3 : (b.source === 'partner' ? (0.3 + (window.Combo ? Combo.partnerBonus() : 0)) : (b.dmgMult || 1) * (typeof playerDmgMul === 'function' ? playerDmgMul(b) : 1)); }
 
     function step() {
         const W = PW(), H = PH(), fz = !!Combo.state.fz;

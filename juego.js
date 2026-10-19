@@ -3862,8 +3862,8 @@ class Item {
 class PointItem {
     constructor(x, y, type) {
         this.x = x; this.y = y; this.type = type; 
-        this.width = type === 'pixel' ? 8 : 16; 
-        this.height = type === 'pixel' ? 8 : 16;
+        this.width = type === 'pixel' ? 8 : (type === 'coin' ? 22 : 16); 
+        this.height = type === 'pixel' ? 8 : (type === 'coin' ? 22 : 16);
         this.vy = type === 'pixel' ? 3.5 : 2.5; 
         this.color = type === 'power' ? 'rgba(255, 50, 50, 0.9)' : 
                      (type === 'graze' ? 'rgba(50, 255, 50, 0.9)' : 
@@ -3872,6 +3872,8 @@ class PointItem {
     }
     update() { this.y += this.vy; }
     draw() {
+        // v39: moneda de mini jefe, gema de enemigo especial y potenciador x1.25 se dibujan en especiales.js
+        if ((this.type === 'coin' || this.type === 'gem' || this.type === 'atkx') && window.Specials && Specials.drawItem) { Specials.drawItem(this); return; }
         if (this.type === 'pixel') {
             ctx.fillStyle = this.color;
             ctx.fillRect(this.x, this.y, this.width, this.height);
@@ -3987,6 +3989,16 @@ function createExplosion(x, y, color, amount = 30, isImpact = false) {
     for (let i = 0; i < n && particles.length < cap; i++) particles.push(new PixelShard(x, y, color, power));
 }
 
+// v39: multiplicador de daño SOLO para las balas de la nave del jugador (no partners ni enemigos):
+// mejoras de la tienda (DAÑO / CRÍTICO) y el bonus x1.25 de los enemigos de ATAQUE (especiales.js).
+function playerDmgMul(b) {
+    if (!b || b.isEnemy || b.source === 'partner') return 1;
+    let m = 1;
+    try { if (typeof Shop !== 'undefined' && Shop.dmgMul) m *= Shop.dmgMul(b); } catch (e) {}
+    try { if (window.Specials && Specials.atkMul) m *= Specials.atkMul(); } catch (e) {}
+    return m;
+}
+
 function collectPointItem(pt) {
     runStat('items');
     if (pt.type === 'power') {
@@ -4004,6 +4016,12 @@ function collectPointItem(pt) {
             partnerPoints -= 150;
             if (partners.length < 6) { partners.push(new Partner(partners.length)); playShootSound(); }
         }
+    } else if (pt.type === 'coin') {
+        Extras.collectCoin(pt);                                     // v39: moneda del mini jefe → desbloquea a Reimu / Marisa
+    } else if (pt.type === 'gem') {
+        if (window.Specials) Specials.collectGem(pt);               // v39: gema de enemigo especial
+    } else if (pt.type === 'atkx') {
+        if (window.Specials) Specials.grantAtk(pt);                 // v39: ataque x1.25 (solo la nave del jugador)
     } else if (pt.type === 'attack') {
         // Bonus: recoger uno de estos ítems adelanta un poco el progreso hacia el
         // siguiente nivel, pero la fuente principal de progreso son los 65 enemigos
@@ -4018,6 +4036,7 @@ function defeatMiniBoss() {
     if (!activeMiniBoss || activeMiniBoss.state === 'dead') return;
     activeMiniBoss.state = 'dead';
     Extras.onMiniBoss();
+    try { Extras.dropCoin(activeMiniBoss.x + activeMiniBoss.width / 2, activeMiniBoss.y + activeMiniBoss.height / 2); } catch (e) { console.warn('dropCoin', e); }   // v39: moneda para Reimu / Marisa
     createExplosion(activeMiniBoss.x + activeMiniBoss.width/2, activeMiniBoss.y + activeMiniBoss.height/2, '#fa0', 200);
     screenShake = 35; score += 1500;
     for (let k = 0; k < Math.max(2, Math.round(6 * powerupDropMult())); k++) items.push(new Item(activeMiniBoss.x + Math.random()*activeMiniBoss.width, activeMiniBoss.y + Math.random()*activeMiniBoss.height));
@@ -4153,6 +4172,9 @@ function triggerGameWin() {
     // La estrella de LUNÁTICO se otorga al nombre guardado (ver Perfil).
     const backToMenu = () => {
         gameWinActive = false;
+        try { Object.keys(keys).forEach(k => { keys[k] = false; }); } catch (e) {}   // v39: ver backToMenu de gameOver()
+        window.__menuLockUntil = Date.now() + 900;
+        try { if (typeof TouhouUI !== 'undefined' && TouhouUI.show) TouhouUI.show('main'); } catch (e) {}
         isMenu = true; menuUI.classList.remove('hidden'); if(optMobile.checked) mobileControls.classList.add('hidden');
         document.body.classList.remove('mobile-playing');
         fitGameToScreen();
@@ -5052,7 +5074,7 @@ function gameLoop() {
                     if (e.hp <= 0) {
                         createExplosion(e.x + e.width/2, e.y + e.height/2, e.color, 80);
                         score += e.type * 50; minionReward(e); enemies.splice(j, 1);
-                        levelEnemiesDefeated++; Extras.onKill(); if (e.role && window.WaveAttacks) WaveAttacks.onEnemyDeath(e);
+                        levelEnemiesDefeated++; Extras.onKill(); if (e.role && window.WaveAttacks) WaveAttacks.onEnemyDeath(e); if (e._sp && window.Specials) Specials.onKill(e);
                         addAttackProgress(1);
                         for(let k=0; k<perfCount(15); k++) dopamineParticles.push(new DopamineParticle(e.x + e.width/2, e.y + e.height/2, false));
                     }
@@ -5135,7 +5157,7 @@ function gameLoop() {
             } else if (activeBoss && activeBoss.state === 'active') {
                 if (!(b.pierce && b.hitList.includes(activeBoss)) && b.x < activeBoss.x + activeBoss.width && b.x + b.width > activeBoss.x && b.y < activeBoss.y + activeBoss.height && b.y + b.height > activeBoss.y) {
                     let dmg = b.isSuper ? 3 : (b.source === 'partner' ? (0.3 + (window.Combo ? Combo.partnerBonus() : 0)) : (b.dmgMult || 1));
-                    dmg *= (1 + (powerLevel - 1) * 0.04); // pequeño buff de daño en cada nivel de ataque
+                    dmg *= (1 + (powerLevel - 1) * 0.04) * playerDmgMul(b); // pequeño buff de daño en cada nivel de ataque (+ tienda y bonus x1.25, solo balas del jugador)
                     if (powerLevel >= 15) dmg *= 2; 
                     dmg *= (activeBoss.defenseMult || 1); // más resistente desde que entró en modo especial
                     dmg /= bossDefenseFactor();           // y más duro según el nivel y tu Nivel de Ataque
@@ -5164,7 +5186,7 @@ function gameLoop() {
             } else if (activeMiniBoss && activeMiniBoss.state === 'active') {
                 if (!(b.pierce && b.hitList.includes(activeMiniBoss)) && b.x < activeMiniBoss.x + activeMiniBoss.width && b.x + b.width > activeMiniBoss.x && b.y < activeMiniBoss.y + activeMiniBoss.height && b.y + b.height > activeMiniBoss.y) {
                     let dmg = b.isSuper ? 3 : (b.source === 'partner' ? (0.3 + (window.Combo ? Combo.partnerBonus() : 0)) : (b.dmgMult || 1));
-                    dmg *= (1 + (powerLevel - 1) * 0.04); // pequeño buff de daño en cada nivel de ataque
+                    dmg *= (1 + (powerLevel - 1) * 0.04) * playerDmgMul(b); // pequeño buff de daño en cada nivel de ataque (+ tienda y bonus x1.25, solo balas del jugador)
                     if (powerLevel >= 15) dmg *= 2;
                     dmg *= (activeMiniBoss.defenseMult || 1); // más resistente desde que entró en modo especial
                     dmg /= bossDefenseFactor();               // y más duro según el nivel y tu Nivel de Ataque
@@ -5195,7 +5217,7 @@ function gameLoop() {
                     let e = enemies[j];
                     if (!(b.pierce && b.hitList.includes(e)) && b.x < e.x + e.width && b.x + b.width > e.x && b.y < e.y + e.height && b.y + b.height > e.y) {
                         let dmg = b.isSuper ? 3 : (b.source === 'partner' ? (0.3 + (window.Combo ? Combo.partnerBonus() : 0)) : (b.dmgMult || 1));
-                        dmg *= (1 + (powerLevel - 1) * 0.04); // pequeño buff de daño en cada nivel de ataque
+                        dmg *= (1 + (powerLevel - 1) * 0.04) * playerDmgMul(b); // pequeño buff de daño en cada nivel de ataque (+ tienda y bonus x1.25, solo balas del jugador)
                         if (powerLevel >= 15) dmg *= 2;
                         dmg /= enemyDefenseFactor(e); // los enemigos aguantan más a medida que subes de nivel
                         e.hp -= dmg;
@@ -5204,7 +5226,7 @@ function gameLoop() {
                         if (e.hp <= 0) {
                             createExplosion(e.x + e.width/2, e.y + e.height/2, e.color, 80);
                             score += e.type * 50; enemies.splice(j, 1);
-                            levelEnemiesDefeated++; Extras.onKill(); if (e.role && window.WaveAttacks) WaveAttacks.onEnemyDeath(e);
+                            levelEnemiesDefeated++; Extras.onKill(); if (e.role && window.WaveAttacks) WaveAttacks.onEnemyDeath(e); if (e._sp && window.Specials) Specials.onKill(e);
                             addAttackProgress(1);
                             
                             let dropCount = Math.floor(Math.random() * 4) + 2;
@@ -6017,6 +6039,12 @@ function gameOver(skipAnim) {
     const wasPractice = !!practiceStage;
     const backToMenu = () => {
         practiceStage = 0;
+        // v39: al volver al menú tras el FIN DEL JUEGO NO se vuelve a empezar desde el nivel 1: se sueltan todas las teclas
+        // y el menú ignora el teclado un instante (si seguías pulsando ENTER al guardar tu nombre, la repetición de la
+        // tecla pulsaba JUGAR y arrancaba otra partida sola). Siempre se vuelve a la pantalla principal del menú.
+        try { Object.keys(keys).forEach(k => { keys[k] = false; }); } catch (e) {}
+        window.__menuLockUntil = Date.now() + 900;
+        try { if (typeof TouhouUI !== 'undefined' && TouhouUI.show) TouhouUI.show('main'); } catch (e) {}
         isMenu = true; menuUI.classList.remove('hidden'); if(optMobile.checked) mobileControls.classList.add('hidden');
         document.body.classList.remove('mobile-playing');
         fitGameToScreen();
@@ -6715,7 +6743,7 @@ function drawOfuda(b) {
 }
 function shootReimu() {
     const now = Date.now();
-    if (player.lastShoot && now - player.lastShoot < Math.max(100, currentFireDelay() * 1.1)) return;
+    if (player.lastShoot && now - player.lastShoot < Math.max(90, currentFireDelay() * 1.0)) return;   // v39: Reimu dispara un poco más rápido
     player.lastShoot = now;
     const cx = player.x + player.width / 2;
     player.reimuTick = (player.reimuTick || 0) + 1;
@@ -6727,13 +6755,13 @@ function shootReimu() {
         const orbs = reimuOrbPos(player, cx, player.y + player.height / 2);
         orbs.forEach(o => {
             const b = new Bullet(o.x - 3, o.y - 8, false, false, 0, -11, 'player', 'ofuda');
-            b.dmgMult = 0.95; b.width = 6; b.height = 14; bullets.push(b);
+            b.dmgMult = 1.3; b.width = 6; b.height = 14;   /* v39: 0.95 → 1.3 */ bullets.push(b);
         });
     } else if (player.reimuTick % (powerLevel >= 8 ? 1 : 2) === 0) {   // amuletos teledirigidos (abanico ancho)
         const orbs = reimuOrbPos(player, cx, player.y + player.height / 2);
         [-1, 1].forEach((sg, i) => {
             const b = new Bullet(orbs[i].x - 4, orbs[i].y - 6, false, false, sg * 1.6, -5.5, 'player', 'ofuda');
-            b.homing = true; b.homingSpeed = 8.5; b.homingTurnRate = 0.10; b.dmgMult = 0.55; b.width = 8; b.height = 12;
+            b.homing = true; b.homingSpeed = 8.5; b.homingTurnRate = 0.10; b.dmgMult = 0.8; b.width = 8; b.height = 12;   /* v39: 0.55 → 0.8 */
             bullets.push(b);
         });
     }
@@ -6757,8 +6785,11 @@ const Extras = (function () {
     let dirty = false;
 
     const coinCount = () => coins.reduce((a, b) => a + (b ? 1 : 0), 0);
-    const reimuUnlocked = () => true;      // sin portales ya no hay monedas gigantes: Reimu viene desbloqueada
-    const marisaUnlocked = () => true;     // ídem Marisa
+    // v39: las MONEDAS las sueltan los MINI JEFES (una por mini jefe derrotado, se guardan en el navegador).
+    // Reimu se desbloquea con COIN_REIMU monedas y Marisa con COIN_MARISA (la moneda 7 abre a Marisa).
+    const COIN_REIMU = 3, COIN_MARISA = 7;
+    const reimuUnlocked = () => coinCount() >= COIN_REIMU;
+    const marisaUnlocked = () => coinCount() >= COIN_MARISA;
     const SHIP_NAMES = { 1: 'Tanque', 2: 'Sniper', 3: 'Ligera', 4: 'Omega', 5: 'Reimu', 6: 'Marisa', 7: 'Goku' };
     const REWARD = [40, 80, 150];
     const TIER_NAMES = ['FÁCIL', 'MEDIA', 'DIFÍCIL'];
@@ -6912,8 +6943,8 @@ const Extras = (function () {
     }
     function renderCoins() {
         const el = document.getElementById('coinRow'); if (!el) return;
-        let h = '<span class="co-label">MONEDAS GIGANTES</span>';
-        for (let i = 0; i < 7; i++) h += `<span class="co ${coins[i] ? 'on' : ''}" title="Mundo ${i + 1}">${i + 1}</span>`;
+        let h = '<span class="co-label">MONEDAS DE MINI JEFE</span>';
+        for (let i = 0; i < 7; i++) h += `<span class="co ${coins[i] ? 'on' : ''}" title="Moneda ${i + 1}">${i + 1}</span>`;
         h += marisaUnlocked() ? '<span class="co-unlock">★ REIMU + MARISA LIBRES</span>' : (reimuUnlocked() ? '<span class="co-unlock">★ REIMU LIBRE · 7 = MARISA</span>' : '');
         el.innerHTML = h;
     }
@@ -6922,10 +6953,20 @@ const Extras = (function () {
             const b = document.querySelector('.ship-btn[data-ship="' + n + '"]'); if (!b) return;
             b.classList.toggle('locked', !un);
             b.querySelector('.ship-name').textContent = un ? n + '. ' + name : n + '. ???';
-            b.querySelector('.ship-desc').textContent = un ? desc : `(${coinCount()}/${need} monedas gigantes)`;
+            b.querySelector('.ship-desc').textContent = un ? desc : `(${coinCount()}/${need} monedas de mini jefe)`;
         };
-        set(5, reimuUnlocked(), 'Reimu', '(Amuletos · Shift: agujas)', 6);
-        set(6, marisaUnlocked(), 'Marisa', '(Estrellas · Láser · Spark)', 7);
+        set(5, reimuUnlocked(), 'Reimu', '(Amuletos · Shift: agujas)', COIN_REIMU);
+        set(6, marisaUnlocked(), 'Marisa', '(Estrellas · Láser · Spark)', COIN_MARISA);
+    }
+    function addCoin() {
+        const i = coins.indexOf(0); if (i < 0) return;
+        const hadR = reimuUnlocked(), hadM = marisaUnlocked();
+        coins[i] = 1; save(); renderCoins(); refreshShipUI();
+        const n = coinCount();
+        try { playLevelUpSound(); } catch (e) {}
+        if (!hadM && marisaUnlocked()) toast('¡MARISA DESBLOQUEADA!', 'Moneda ' + n + '/7 · ya puedes elegirla en el hangar', '', '#ffd84a');
+        else if (!hadR && reimuUnlocked()) toast('¡REIMU DESBLOQUEADA!', 'Moneda ' + n + '/7 · ya puedes elegirla en el hangar', '', '#ff4a5c');
+        else toast('¡MONEDA DE MINI JEFE!', n + '/7 · Reimu con ' + COIN_REIMU + ' · Marisa con ' + COIN_MARISA, '', '#ffd84a');
     }
     function initUI() {
         const sel = document.getElementById('shipSelection');
@@ -6975,7 +7016,20 @@ const Extras = (function () {
             }
             renderMissions();
         },
-        coinCount() { return coinCount(); },   // v16: monedas gigantes conseguidas (0-7), para el perfil
+        coinCount() { return coinCount(); },   // v16: monedas conseguidas (0-7), para el perfil
+        // v39: el mini jefe suelta UNA moneda (objeto que vuela hacia tu nave). Si ya tienes las 7, no suelta más.
+        // En el Modo Práctica no se gana progreso.
+        dropCoin(x, y) {
+            if (inPractice() || coinCount() >= 7) return null;
+            const pt = new PointItem(x - 11, y - 11, 'coin');
+            pt.magnet = true; pt.vy = 1.4; pt.coinPending = true;
+            pointItems.push(pt);
+            // Red de seguridad: si por lo que sea no llegas a recogerla (cambio de nivel, muerte...), se te acredita igual.
+            setTimeout(() => { if (pt.coinPending) { pt.coinPending = false; const i = pointItems.indexOf(pt); if (i >= 0) pointItems.splice(i, 1); addCoin(); } }, 6000);
+            return pt;
+        },
+        collectCoin(pt) { if (pt && pt.coinPending === false) return; if (pt) pt.coinPending = false; addCoin(); },
+        coinsNeeded() { return { reimu: COIN_REIMU, marisa: COIN_MARISA }; },
         onLevelStart() { levelHit = false; },
         onKill() { runStat('kills'); bump('kill', 1); },
         onMiniBoss() { runStat('minibosses'); bump('mini', 1); },
@@ -7917,13 +7971,13 @@ const Shop = (function () {
     // color null = el color propio de cada nave
     const SKINS = [
         { id: 'classic', name: 'CLASICA',        desc: 'Los colores de fábrica de tu nave.', color: null,      fx: null,      price: 0 },
-        { id: 'neon',    name: 'NEON MAGENTA',   desc: 'Brilla en la oscuridad.',            color: '#ff2fd6', fx: null,      price: 150 },
-        { id: 'frost',   name: 'CRISTAL GLACIAL',desc: 'Estela de copos helados.',           color: '#6fd8ff', fx: 'frost',   price: 250 },
-        { id: 'lava',    name: 'MAGMA',          desc: 'Deja brasas encendidas.',            color: '#ff5a1a', fx: 'ember',   price: 250 },
-        { id: 'sakura',  name: 'SAKURA',         desc: 'Pétalos de cerezo al volar.',        color: '#ff8fbf', fx: 'petal',   price: 300 },
-        { id: 'shadow',  name: 'SOMBRA',         desc: 'Humo violeta y un casco oscuro.',    color: '#4a3a66', fx: 'smoke',   price: 350 },
-        { id: 'gold',    name: 'ORO REAL',       desc: 'Chispas doradas, puro lujo.',        color: '#ffc61a', fx: 'sparkle', price: 600 },
-        { id: 'rainbow', name: 'ARCOIRIS',       desc: 'Cambia de color sin parar.',         color: '#ff0000', fx: 'rainbow', price: 1000 }
+        { id: 'neon',    name: 'NEON MAGENTA',   desc: 'Estelas de luz neón y aura vibrante.', color: '#ff2fd6', fx: 'neon',   price: 150 },
+        { id: 'frost',   name: 'CRISTAL GLACIAL',desc: 'Copos de nieve, cristales de hielo orbitando y bruma helada.', color: '#6fd8ff', fx: 'frost',   price: 250 },
+        { id: 'lava',    name: 'MAGMA',          desc: 'Llamas en los motores, brasas y calor ondulante.', color: '#ff5a1a', fx: 'ember',   price: 250 },
+        { id: 'sakura',  name: 'SAKURA',         desc: 'Torbellino de pétalos de cerezo y aura rosada.', color: '#ff8fbf', fx: 'petal',   price: 300 },
+        { id: 'shadow',  name: 'SOMBRA',         desc: 'Humo oscuro, relámpagos violeta y aura sombría.', color: '#4a3a66', fx: 'smoke',   price: 350 },
+        { id: 'gold',    name: 'ORO REAL',       desc: 'Destellos de estrella, rayos de luz y polvo de oro.', color: '#ffc61a', fx: 'sparkle', price: 600 },
+        { id: 'rainbow', name: 'ARCOIRIS',       desc: 'Cinta arcoíris, orbes giratorios y anillo de color.', color: '#ff0000', fx: 'rainbow', price: 1000 }
     ];
     // tab: nave = partida normal · bonus = mejoras del Modo Arcoíris
     const UPS = [
@@ -7936,6 +7990,11 @@ const Shop = (function () {
         { id: 'magnet',  tab: 'nave',  name: 'IMAN DE PODERES',  desc: 'Atrae poderes y gemas.',  prices: [300, 650], fx: ['Alcance medio', 'Alcance grande'] },
         { id: 'partner', tab: 'nave',  name: 'SATELITE ALIADO',  desc: 'Orbes aliados que disparan contigo.',        prices: [500, 1000], fx: ['1 orbe', '2 orbes'] },
         { id: 'phoenix', tab: 'nave',  name: 'FENIX',            desc: 'Una vez por partida revives en vez de perder.', prices: [1200], fx: ['1 revivir'] },
+        { id: 'dmg',     tab: 'nave',  name: 'MEJOR ATAQUE',     desc: 'Tus balas hacen más daño (no afecta a los partners).', prices: [350, 800, 1500], fx: ['+10% daño', '+20% daño', '+30% daño'] },
+        { id: 'crit',    tab: 'nave',  name: 'GOLPE CRITICO',    desc: 'Algunas balas hacen el doble de daño.',      prices: [300, 700, 1300], fx: ['10% de crítico', '18% de crítico', '25% de crítico'] },
+        { id: 'graze',   tab: 'nave',  name: 'ROCE AVANZADO',    desc: 'Rozar balas carga la bomba más rápido.',     prices: [250, 600], fx: ['+25% graze', '+50% graze'] },
+        { id: 'loot',    tab: 'nave',  name: 'BOTIN ESTELAR',    desc: 'Los enemigos sueltan más poderes (P/D/E/S).', prices: [300, 700], fx: ['+15% poderes', '+30% poderes'] },
+        { id: 'buff',    tab: 'nave',  name: 'BONUS PROLONGADO', desc: 'El bonus x1.25 de los enemigos de ATAQUE dura más.', prices: [250, 550], fx: ['+4 s', '+8 s'] },
         { id: 'gemx',    tab: 'bonus', name: 'CAZAGEMAS',       desc: 'Más gemas por cada enemigo del Modo Arcoíris.', prices: [400, 900], fx: ['+20% gemas', '+40% gemas'] }
     ];
     const lv = id => st.up[id] || 0;
@@ -7951,6 +8010,13 @@ const Shop = (function () {
         },
         gemMul() { return [0, 0.2, 0.4][lv('gemx')]; },
         fireMul() { return 1 - 0.08 * lv('fire'); },
+        // v39: daño extra SOLO de las balas de tu nave (la llama playerDmgMul en juego.js): MEJOR ATAQUE + GOLPE CRITICO
+        dmgMul(b) {
+            let m = 1 + [0, 0.10, 0.20, 0.30][lv('dmg')];
+            const c = [0, 0.10, 0.18, 0.25][lv('crit')];
+            if (c && Math.random() < c) { m *= 2; try { if (b) createExplosion(b.x, b.y, '#ffe27a', 5, true); } catch (e) {} }
+            return m;
+        },
         // al empezar una partida normal (player ya existe)
         applyRun() {
             st.phoenixUsed = false;
@@ -8005,6 +8071,10 @@ const Shop = (function () {
         try {
             const cfd = window.currentFireDelay;
             if (typeof cfd === 'function') window.currentFireDelay = function () { return Math.max(55, Math.round(cfd() * api.fireMul())); };
+            const ag = window.addGraze;
+            if (typeof ag === 'function') window.addGraze = function (n) { return ag.call(this, n * (1 + 0.25 * lv('graze'))); };            // ROCE AVANZADO
+            const pdm = window.powerupDropMult;
+            if (typeof pdm === 'function') window.powerupDropMult = function () { return pdm.apply(this, arguments) * (1 + 0.15 * lv('loot')); };   // BOTIN ESTELAR
             const go = window.gameOver;
             if (typeof go === 'function') window.gameOver = function () {
                 if (api.phoenix()) {
@@ -8034,6 +8104,7 @@ const Shop = (function () {
             Player.prototype.draw = function () {
                 pd.call(this);
                 const fx = this.skinFx; if (!fx || typeof gameStartTimer === 'undefined') return;
+                try { if (window.SkinFX && SkinFX.draw(this)) return; } catch (e) { console.warn('SkinFX', e); }   // v39: efectos únicos por skin (skins_fx.js)
                 const cx = this.x + this.width / 2, cy = this.y + this.height;
                 if (this.animT % 2 === 0 && FX.length < 70) {
                     const o = { x: cx + (Math.random() - 0.5) * 8, y: cy - 2, vx: (Math.random() - 0.5) * 0.6, vy: 0.8 + Math.random() * 1.2, life: 26, s: 2, c: '#fff' };
@@ -8082,6 +8153,10 @@ const Shop = (function () {
     .skin-ship { width:28px; height:34px; clip-path:polygon(50% 0,62% 32%,100% 66%,100% 100%,0 100%,0 66%,38% 32%); }
     .skin-ship.rb { animation:rbHue 2s linear infinite; }
     @keyframes rbHue { from { filter:hue-rotate(0deg); } to { filter:hue-rotate(360deg); } }
+    .skin-wrap { display:flex; align-items:center; justify-content:center; filter:drop-shadow(0 0 4px var(--g,transparent)); }
+    .skin-wrap.has-fx { animation:skGlow 1.4s ease-in-out infinite; }
+    .skin-wrap.has-fx.rb { animation:skGlow 1.4s ease-in-out infinite, rbHue 2s linear infinite; }
+    @keyframes skGlow { 0%,100% { filter:drop-shadow(0 0 3px var(--g)); } 50% { filter:drop-shadow(0 0 11px var(--g)) drop-shadow(0 0 3px var(--g)); } }
     .up-ico { font-size:18px; color:#0ff; text-shadow:0 0 8px #0ff; }
     .pips { display:flex; gap:4px; }
     .pip { width:14px; height:6px; background:#12303f; border:1px solid #36607a; }
@@ -8105,7 +8180,7 @@ const Shop = (function () {
         const host = document.getElementById('gameContainer') || document.body;
         modal = document.createElement('div'); modal.id = 'shopModal'; modal.className = 'hidden';
         modal.innerHTML = `<div class="shop-box"><div class="shop-head"><div class="shop-title">TIENDA ESTELAR</div><div class="shop-gems"><i class="gem-ico"></i><span id="shopGems">0</span></div></div>
-            <div class="shop-tabs"><button class="shop-tab on" data-tab="skins">SKINS</button><button class="shop-tab" data-tab="nave">PODERES DE NAVE</button><button class="shop-tab" data-tab="bonus">ARCOIRIS</button></div>
+            <div class="shop-tabs"><button class="shop-tab on" data-tab="skins">SKINS</button><button class="shop-tab" data-tab="nave">MEJORAS DE NAVE</button><button class="shop-tab" data-tab="bonus">ARCOIRIS</button></div>
             <div class="shop-grid" id="shopGrid"></div>
             <div class="shop-foot"><span>Gana gemas con los enemigos del MODO ARCOIRIS (combo x50)</span><button class="shop-close" id="shopClose">CERRAR</button></div></div>`;
         host.appendChild(modal);
@@ -8127,7 +8202,9 @@ const Shop = (function () {
     function closeShop() { if (modal) modal.classList.add('hidden'); }
     function skinIcon(s) {
         const col = s.color || '#00aa00';
-        return `<div class="skin-ship ${s.id === 'rainbow' ? 'rb' : ''}" style="background:${s.color ? `linear-gradient(180deg,#fff 0%,${col} 40%,${col} 100%)` : 'linear-gradient(180deg,#7f7 0%,#0a0 60%,#38f 100%)'}"></div>`;
+        const GL = { neon: '#ff2fd6', frost: '#8fe0ff', lava: '#ff6a1a', sakura: '#ff8fbf', shadow: '#a878f0', gold: '#ffd84a', rainbow: '#ff4a4a' };   // v39: brillo propio de cada skin
+        const ship = `<div class="skin-ship ${s.id === 'rainbow' ? 'rb' : ''}" style="background:${s.color ? `linear-gradient(180deg,#fff 0%,${col} 40%,${col} 100%)` : 'linear-gradient(180deg,#7f7 0%,#0a0 60%,#38f 100%)'}"></div>`;
+        return `<div class="skin-wrap ${GL[s.id] ? 'has-fx' : ''} ${s.id === 'rainbow' ? 'rb' : ''}" style="--g:${GL[s.id] || 'transparent'}">${ship}</div>`;
     }
     function renderShop() {
         if (!modal) return;
@@ -8150,7 +8227,7 @@ const Shop = (function () {
         grid.querySelectorAll('[data-skin]').forEach(b => b.addEventListener('click', () => { const ok = api.buySkin(b.getAttribute('data-skin')); if (ok) sfx('buy'); else deny(b); }));
         grid.querySelectorAll('[data-up]').forEach(b => b.addEventListener('click', () => { const ok = api.buyUp(b.getAttribute('data-up')); if (ok) sfx('buy'); else deny(b); }));
     }
-    const ICON = { lives: '♥', shield: '◎', fire: '≫', speed: '➤', atk: '▲', bomb: '●', magnet: '∩', partner: '✦', phoenix: '☼', bhp: '♥', bbomb: '●', bpower: '▲', gemx: '◆' };
+    const ICON = { dmg: '✸', crit: '✧', graze: '≈', loot: '❖', buff: '⚔', lives: '♥', shield: '◎', fire: '≫', speed: '➤', atk: '▲', bomb: '●', magnet: '∩', partner: '✦', phoenix: '☼', bhp: '♥', bbomb: '●', bpower: '▲', gemx: '◆' };
     function deny(b) { sfx('deny'); const c = b.closest('.shop-card'); if (c) { c.classList.remove('shake'); void c.offsetWidth; c.classList.add('shake'); } }
 
     patch();
@@ -12186,7 +12263,7 @@ function drawSparkSlice(b) { /* el rayo se dibuja entero en ShipFX.under(); la b
 function shootMarisa() {
     const now = Date.now(), TI = window.TouchInput;
     const focus = keys['ShiftLeft'] || keys['ShiftRight'] || (TI && TI.focus);
-    const gap = focus ? 58 : Math.max(105, currentFireDelay() * 1.05);
+    const gap = focus ? 52 : Math.max(92, currentFireDelay() * 0.95);   // v39: Marisa un poco más rápida
     if (player.lastShoot && now - player.lastShoot < gap) return;
     player.lastShoot = now;
     player.mTick = (player.mTick || 0) + 1;
@@ -12195,7 +12272,7 @@ function shootMarisa() {
         const n = powerLevel >= 8 ? 3 : (powerLevel >= 4 ? 2 : 1);
         for (let i = 0; i < n; i++) {
             const b = new Bullet(cx + (i - (n - 1) / 2) * 9 - 3, top - 8, false, false, 0, -22, 'player', 'mlaser');
-            b.width = 6; b.height = 36; b.pierce = true; b.hitList = []; b.dmgMult = 0.5; b.drawFn = drawMLaser; b.color = '#c9a0ff';
+            b.width = 6; b.height = 36; b.pierce = true; b.hitList = []; b.dmgMult = 0.7; b.drawFn = drawMLaser;   /* v39: 0.5 → 0.7 */ b.color = '#c9a0ff';
             bullets.push(b);
         }
         if (player.mTick % 3 === 0) playShootSound();
@@ -12203,12 +12280,12 @@ function shootMarisa() {
         const fan = (powerLevel >= 10) ? [0, -0.15, 0.15, -0.32, 0.32] : (powerLevel >= 5 ? [0, -0.16, 0.16] : [-0.07, 0.07]);
         fan.forEach(a => {
             const b = new Bullet(cx - 5.5, top - 4, false, false, Math.sin(a) * 8.5, -Math.cos(a) * 8.5, 'player', 'mstar');
-            b.width = 11; b.height = 11; b.dmgMult = 0.75; b.drawFn = drawMStar; bullets.push(b);
+            b.width = 11; b.height = 11; b.dmgMult = 1.0; b.drawFn = drawMStar;   /* v39: 0.75 → 1.0 */ bullets.push(b);
         });
         if (player.mTick % 2 === 0) {
             [-1, 1].forEach(sg => {
                 const m = new Bullet(cx + sg * 13 - 3, top + 4, false, false, sg * 1.6, -5, 'player', 'mmissile');
-                m.width = 6; m.height = 10; m.homing = true; m.homingSpeed = 8.2; m.homingTurnRate = 0.09; m.dmgMult = 0.6; m.drawFn = drawMMissile; bullets.push(m);
+                m.width = 6; m.height = 10; m.homing = true; m.homingSpeed = 8.2; m.homingTurnRate = 0.09; m.dmgMult = 0.85; m.drawFn = drawMMissile;   /* v39: 0.6 → 0.85 */ bullets.push(m);
             });
         }
         playShootSound();
@@ -12250,7 +12327,7 @@ const ShipFX = (function () {
         if (t === 6 && player.sparkUntil > now) {
             const cx = cxOf(), w = 92;
             const b = new Bullet(cx - w / 2, player.y - 150, false, false, 0, -26, 'player', 'mspark');
-            b.width = w; b.height = 150; b.pierce = true; b.hitList = []; b.dmgMult = 0.4; b.drawFn = drawSparkSlice; bullets.push(b);
+            b.width = w; b.height = 150; b.pierce = true; b.hitList = []; b.dmgMult = 0.55; b.drawFn = drawSparkSlice;   /* v39: 0.4 → 0.55 */ bullets.push(b);
             for (let j = enemyBullets.length - 1; j >= 0; j--) { const e = enemyBullets[j]; if (Math.abs(e.x - cx) < w / 2 + 4 && e.y < player.y) enemyBullets.splice(j, 1); }
             drawSparkBeam(cx, now);
             screenShake = Math.max(screenShake, 3);
@@ -14301,6 +14378,40 @@ const TouhouUI = (function () {
     }
     menuUI.addEventListener('pointerdown', secretShipTap);
 
+    // ---- KONAMI TÁCTIL (teléfono): con un dedo, en el menú principal:
+    //      desliza ↑ ↑ ↓ ↓ ← → ← →  y luego toca la NAVE (= B) y la LUNA (= A). Mismo premio que el código del teclado.
+    //      Un toque en otro sitio no rompe la secuencia; deslizar mal o tocar la nave/luna fuera de turno, sí.
+    const SWIPE_MIN = 36, SWIPE_DIR = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' };
+    let gId = null, gx = 0, gy = 0, gt = 0;
+    function konamiStep(code) {
+        const before = kPos, done = konami(code);
+        if (!done && kPos > before) sfx('ship', kPos % 6);          // pitido de progreso
+    }
+    function konamiActive() { return screen === 'main' && !introOn && !(quitEl && quitEl.classList.contains('on')); }
+    menuUI.addEventListener('pointerdown', e => {
+        if (!konamiActive() || !e.isPrimary) { gId = null; return; }
+        gId = e.pointerId; gx = e.clientX; gy = e.clientY; gt = performance.now();
+    });
+    menuUI.addEventListener('pointercancel', () => { gId = null; });
+    menuUI.addEventListener('pointerup', e => {
+        if (e.pointerId !== gId) return; gId = null;
+        if (!konamiActive()) return;
+        const dx = e.clientX - gx, dy = e.clientY - gy, dist = Math.hypot(dx, dy), dt = performance.now() - gt;
+        if (dist >= SWIPE_MIN) {                                      // deslizamiento
+            const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+            konamiStep(SWIPE_DIR[dir]); return;
+        }
+        if (dist > 14 || dt > 500) return;                            // ni toque ni deslizamiento
+        if (e.target && e.target.closest && e.target.closest('button, a, select, input, .th-item')) return;
+        const r = cv.getBoundingClientRect(); if (!r.width || !r.height) return;
+        const x = (e.clientX - r.left) / r.width * W, y = (e.clientY - r.top) / r.height * H;
+        if (Math.hypot(x - L.mx, y - L.my) <= L.mr * 1.5) { konamiStep('KeyA'); return; }                 // luna
+        if (Math.abs(x - L.sx) <= L.ss * 0.85 && y >= L.sy - L.ss * 1.05 && y <= L.sy + L.ss * 1.2) konamiStep('KeyB');   // nave
+    });
+    // sin esto el navegador móvil convierte el deslizamiento en scroll y cancela el gesto
+    function syncTouch() { menuUI.style.touchAction = screen === 'main' ? 'none' : ''; }
+    syncTouch();
+
     function show(s) {
         const was = screen; screen = s;
         setup.classList.toggle('hidden', s !== 'setup' && s !== 'practice');
@@ -14320,6 +14431,7 @@ const TouhouUI = (function () {
             if (s === 'practice') { if (practiceSel === 7 && diffSel && diffSel.value !== 'lunatico') practiceSel = 6; refreshLocks(); }
             setup.scrollTop = 0;
         }
+        syncTouch();
         if (s === 'main') { menuUI.classList.remove('th-sub'); setIdx(idx, true); }
         if (was !== s && s === 'score') { try { loadScores(); } catch (e) {} }
     }
@@ -14348,6 +14460,7 @@ const TouhouUI = (function () {
     const modalOpen = () => { const o = $('optionsModal'), s = $('shopModal'); return (o && !o.classList.contains('hidden')) || (s && !s.classList.contains('hidden')); };
     window.addEventListener('keydown', e => {
         if (menuUI.classList.contains('hidden') || (typeof isMenu !== 'undefined' && !isMenu)) return;
+        if (Date.now() < (window.__menuLockUntil || 0)) { e.preventDefault(); e.stopPropagation(); return; }   // v39: recién volviste de la partida
         if (quitEl.classList.contains('on')) { e.preventDefault(); e.stopPropagation(); if (quitEl.classList.contains('vis')) leaveQuit(); return; }
         if (introOn) { e.preventDefault(); e.stopPropagation(); skipIntro(); return; }
         const om = $('optionsModal');
@@ -14356,6 +14469,7 @@ const TouhouUI = (function () {
         const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT');
         const k = e.code;
         const ok = k === 'Enter' || k === 'KeyZ' || k === 'NumpadEnter', bk = k === 'Escape' || k === 'KeyX';
+        if (ok && e.repeat) { e.preventDefault(); e.stopPropagation(); return; }   // v39: mantener ENTER/Z pulsado nunca activa botones del menú (evitaba reiniciar solo desde el nivel 1)
         if (typing && !(k === 'Escape' || (k === 'Enter'))) return;
         if (typing && k === 'Enter') { e.target.blur(); e.preventDefault(); return; }
         if (screen === 'main' && konami(k)) { e.preventDefault(); e.stopPropagation(); return; }
@@ -15235,7 +15349,7 @@ const BombFX = (function () {
         if (e.hp <= 0) {
             createExplosion(e.x + e.width / 2, e.y + e.height / 2, e.color, lite() ? 30 : 70);
             score += e.type * 50; minionReward(e); enemies.splice(j, 1);
-            levelEnemiesDefeated++; Extras.onKill(); if (e.role && window.WaveAttacks) WaveAttacks.onEnemyDeath(e);
+            levelEnemiesDefeated++; Extras.onKill(); if (e.role && window.WaveAttacks) WaveAttacks.onEnemyDeath(e); if (e._sp && window.Specials) Specials.onKill(e);
             addAttackProgress(1);
             for (let k = 0; k < perfCount(10); k++) dopamineParticles.push(new DopamineParticle(e.x + e.width / 2, e.y + e.height / 2, false));
         }

@@ -1,3 +1,11 @@
+## v39
+- Konami táctil (menú principal): desliza ↑ ↑ ↓ ↓ ← → ← →, toca la nave (B) y toca la luna (A). El del teclado sigue igual.
+- Fin del juego: al guardar nombre y puntaje se vuelve al menú (no reinicia el nivel 1; Modo Infinito sin cambios). El menú ignora Enter repetido.
+- Enemigos especiales (`especiales.js`): de ATAQUE (bonus x1.25 solo a tu nave) y de GEMAS.
+- Tienda: MEJOR ATAQUE, GOLPE CRITICO, ROCE AVANZADO, BOTIN ESTELAR, BONUS PROLONGADO.
+- Skins con efectos únicos (`skins_fx.js`).
+- Reimu (3 monedas) y Marisa (7) se desbloquean con las monedas que sueltan los mini jefes; ambas con más daño.
+
 # Cambios v38 — Sin portales/mundo retro, Modo Arcoíris con peligros y gemas, sprites nuevos de power-ups
 
 - **Eliminados** el mundo retro de 8 bits y los portales secretos (y su música `retro.mp3`, misiones de portal/monedas y botón SALIR móvil). Como las monedas gigantes ya no existen, **Reimu y Marisa vienen desbloqueadas** (`reimuUnlocked` / `marisaUnlocked` en `extras.js`).

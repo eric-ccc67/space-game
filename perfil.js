@@ -200,6 +200,15 @@ const Perfil = (function () {
             st.busy = false; st.saved = true; inp.readOnly = true;
             const sv = $('pfSave'); sv.disabled = false; sv.textContent = 'CONTINUAR';
             $('pfSkip').style.display = 'none';
+            // v39: tras PERDER del todo (FIN DEL JUEGO), en cuanto se guarda el nombre y el puntaje se vuelve SOLO al menú
+            // principal (no se reinicia el nivel 1). El Modo Infinito no cuenta: allí sigue el botón CONTINUAR de siempre.
+            if (st.kind === 'death' && !(typeof currentMode !== 'undefined' && currentMode === 'infinito')) {
+                sv.textContent = 'IR AL MENÚ';
+                const mine = st;
+                setTimeout(() => { if (st === mine && st.saved) close(); }, 1800);
+                try { sv.blur(); } catch (e) {}       // el foco fuera del botón: un ENTER suelto no cierra ni inicia nada
+                return;
+            }
             try { sv.focus(); } catch (e) {}
         }
     }
