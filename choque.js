@@ -313,6 +313,7 @@
         // OJO: start() se llama desde DENTRO del bucle de balas de juego.js (defeatBoss). Vaciar bullets/enemyBullets aquí
         // rompía ese bucle (bullets[i] undefined -> TypeError -> el juego se congelaba). Se limpian en el primer cuadro del choque.
         parts.length = 0;
+        try { if (window.BombFX) BombFX.reset(); bombEffect.active = false; } catch (e) {}   // la bomba se cancela al empezar el choque (evita que deje el lienzo desfasado)
         invulnerableUntil = 0;
         b._ab = null; b._abShow = false; b._alpha = 1;                 // sin rótulos / transparencias a medias del jefe
         try { if (window.BossEvents && BossEvents.cancelAll) BossEvents.cancelAll(); } catch (e) {}   // eventos_jefes.js: cancela el evento en curso
@@ -343,6 +344,7 @@
     }
 
     function finishWin() {
+        try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (e) {}
         const S = ST, b = S.boss;
         b.hp = 0; b._clashDone = true; ST = null; parts.length = 0; hideBtn();
         player.bankAngle = 0;
@@ -352,6 +354,7 @@
         defeatBoss(b);
     }
     function finishLose() {
+        try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (e) {}
         const S = ST, b = S.boss;
         b._clashDone = (S.attempt + 1) >= MAX_CLASHES; ST = null; parts.length = 0; hideBtn();
         player.bankAngle = 0;

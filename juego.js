@@ -3994,6 +3994,7 @@ function createExplosion(x, y, color, amount = 30, isImpact = false) {
 function playerDmgMul(b) {
     if (!b || b.isEnemy || b.source === 'partner') return 1;
     let m = 1;
+    try { if (window.Perks) m *= Perks.dmgMul(); } catch (e) {}
     try { if (typeof Shop !== 'undefined' && Shop.dmgMul) m *= Shop.dmgMul(b); } catch (e) {}
     try { if (window.Specials && Specials.atkMul) m *= Specials.atkMul(); } catch (e) {}
     return m;
@@ -4779,7 +4780,9 @@ function initGame() {
 function gameLoop() {
     if (!isPlaying) return;
     if (window.GamePause && window.GamePause.on) { requestAnimationFrame(gameLoop); return; }   // pausa
-    if (window.PerfilOpen) { requestAnimationFrame(gameLoop); return; }                           // pantalla de nombre / perfil (perfil.js)
+    if (window.PerfilOpen || window.PerkOpen) { requestAnimationFrame(gameLoop); return; }        // pantalla de nombre / perfil (perfil.js) · menú de poderes
+    // Seguro anti-desfase: si algún efecto (bomba, choque, cinemática) dejó el lienzo movido/escalado, se restablece
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0; ctx.shadowOffsetX = ctx.shadowOffsetY = 0; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     if (deathAnim) { drawDeathAnim(); requestAnimationFrame(gameLoop); return; }                  // la nave se rompe
     if (reviveAnim) { drawReviveAnim(); requestAnimationFrame(gameLoop); return; }                // la nave se rearma
     if (continueState) { drawContinue(); requestAnimationFrame(gameLoop); return; }               // ¿continuar?
@@ -5150,7 +5153,7 @@ function gameLoop() {
                     if (levelCompleteHits >= LEVEL_COMPLETE_HITS_NEEDED) {
                         levelCompleteActive = false;
                         levelCompleteData = null;
-                        nextWave();
+                        if (window.Perks) Perks.offer(nextWave); else nextWave();
                     }
                     continue;
                 }
@@ -5303,6 +5306,7 @@ function gameLoop() {
         particles[i].update(); particles[i].draw();
         if (particles[i].life <= 0) particles.splice(i, 1);
     }
+    if (currentMode !== 'clasico') cullOffscreen();
     
     ctx.restore();
 
@@ -5473,6 +5477,27 @@ const FIRE_DELAY_NORMAL = 130;
 
 // La cadencia mejora un poco en cada Nivel de Ataque (hasta ~30% más rápida en Lv.15),
 // para que subir de nivel se sienta como un buff constante y no solo en unos pocos hitos.
+// Elimina lo que ya salió del área de juego (borde rojo) para ahorrar memoria y CPU.
+// Márgenes generosos para no borrar lo que entra desde arriba o de lado. Jefes y mini jefes NO se borran (trabarían el nivel):
+// si se alejan demasiado de la pantalla se les devuelve dentro.
+function cullOffscreen() {
+    const W = playAreaW, H = playAreaH, M = 80;
+    const out = (o, mx, my) => o.x + (o.width || 0) < -mx || o.x > W + mx || o.y + (o.height || 0) < -my || o.y > H + my;
+    for (let i = bullets.length - 1; i >= 0; i--) { const o = bullets[i]; if (!o || out(o, M, M)) bullets.splice(i, 1); }
+    for (let i = enemyBullets.length - 1; i >= 0; i--) { const o = enemyBullets[i]; if (!o || out(o, M, M)) enemyBullets.splice(i, 1); }
+    for (let i = enemies.length - 1; i >= 0; i--) { const o = enemies[i]; if (!o) { enemies.splice(i, 1); continue; } if (o.y > H + 120 || o.x + (o.width || 0) < -250 || o.x > W + 250 || o.y < -600) enemies.splice(i, 1); }
+    for (let i = items.length - 1; i >= 0; i--) { const o = items[i]; if (!o || out(o, M, 40)) items.splice(i, 1); }
+    for (let i = pointItems.length - 1; i >= 0; i--) { const o = pointItems[i]; if (!o || out(o, M, 40)) pointItems.splice(i, 1); }
+    for (let i = particles.length - 1; i >= 0; i--) { const o = particles[i]; if (o && o.x !== undefined && (o.x < -150 || o.x > W + 150 || o.y < -150 || o.y > H + 150)) particles.splice(i, 1); }
+    for (let i = dopamineParticles.length - 1; i >= 0; i--) { const o = dopamineParticles[i]; if (o && o.x !== undefined && (o.x < -150 || o.x > W + 150 || o.y < -150 || o.y > H + 150)) dopamineParticles.splice(i, 1); }
+    [activeBoss, activeMiniBoss].forEach(b => {
+        if (!b || b.state === 'dead' || b.state === 'intro') return;
+        const bw = b.width || 0, bh = b.height || 0;
+        if (b.x + bw < -bw || b.x > W + bw) b.x = Math.max(0, Math.min(W - bw, b.x));
+        if (b.y > H || b.y + bh < -bh * 2) b.y = Math.max(0, Math.min(H * 0.5, b.y));
+    });
+}
+
 function currentFireDelay() {
     return Math.max(90, FIRE_DELAY_NORMAL - (powerLevel - 1) * 3);
 }
@@ -7965,6 +7990,7 @@ const Shop = (function () {
 
     let st = Object.assign({ gems: 0, skins: ['classic'], skin: 'classic', up: {}, phoenixUsed: false }, lsGet() || {});
     if (!Array.isArray(st.skins) || st.skins.indexOf('classic') < 0) st.skins = ['classic'];
+    st.up = st.up || {};
     const save = () => lsSet({ gems: st.gems, skins: st.skins, skin: st.skin, up: st.up });
 
     // ------------------------------------------------------------------ catálogo
@@ -7997,6 +8023,13 @@ const Shop = (function () {
         { id: 'buff',    tab: 'nave',  name: 'BONUS PROLONGADO', desc: 'El bonus x1.25 de los enemigos de ATAQUE dura más.', prices: [250, 550], fx: ['+4 s', '+8 s'] },
         { id: 'gemx',    tab: 'bonus', name: 'CAZAGEMAS',       desc: 'Más gemas por cada enemigo del Modo Arcoíris.', prices: [400, 900], fx: ['+20% gemas', '+40% gemas'] }
     ];
+    // La tienda ahora solo vende skins: las mejoras antiguas se reembolsan una vez (en gemas) y quedan sin efecto.
+    (function refundLegacy() {
+        let back = 0;
+        UPS.forEach(u => { const l = st.up[u.id] || 0; for (let i = 0; i < l && i < u.prices.length; i++) back += u.prices[i]; });
+        if (back > 0) st.gems += back;
+        if (Object.keys(st.up).length) { st.up = {}; save(); }
+    })();
     const lv = id => st.up[id] || 0;
 
     // ------------------------------------------------------------------ efectos
@@ -8053,6 +8086,7 @@ const Shop = (function () {
             st.gems -= s.price; st.skins.push(id); st.skin = id; save(); refreshBtn(); renderShop(); return true;
         },
         buyUp(id) {
+            return false;   // las mejoras de nave y de arcoíris ya no se venden (ahora hay poderes tras cada jefe)
             const u = UPS.find(x => x.id === id); if (!u) return false;
             const l = lv(id); if (l >= u.prices.length) return false;
             if (st.gems < u.prices[l]) return false;
@@ -8180,7 +8214,7 @@ const Shop = (function () {
         const host = document.getElementById('gameContainer') || document.body;
         modal = document.createElement('div'); modal.id = 'shopModal'; modal.className = 'hidden';
         modal.innerHTML = `<div class="shop-box"><div class="shop-head"><div class="shop-title">TIENDA ESTELAR</div><div class="shop-gems"><i class="gem-ico"></i><span id="shopGems">0</span></div></div>
-            <div class="shop-tabs"><button class="shop-tab on" data-tab="skins">SKINS</button><button class="shop-tab" data-tab="nave">MEJORAS DE NAVE</button><button class="shop-tab" data-tab="bonus">ARCOIRIS</button></div>
+            <div class="shop-tabs"><button class="shop-tab on" data-tab="skins">SKINS</button></div>
             <div class="shop-grid" id="shopGrid"></div>
             <div class="shop-foot"><span>Gana gemas con los enemigos del MODO ARCOIRIS (combo x50)</span><button class="shop-close" id="shopClose">CERRAR</button></div></div>`;
         host.appendChild(modal);
@@ -14098,7 +14132,7 @@ const TouhouUI = (function () {
         { id: 'start', label: 'Comenzar', cap: 'Empieza la partida completa.' },
         { id: 'practice', label: 'Modo Práctica', cap: 'Practica el nivel que quieras (1-7).' },
         { id: 'score', label: 'Puntajes', cap: 'Ranking de pilotos y misiones diarias.' },
-        { id: 'shop', label: 'Tienda', cap: 'Skins y poderes con tus gemas.' },
+        { id: 'shop', label: 'Tienda', cap: 'Skins con tus gemas.' },
         { id: 'option', label: 'Opciones', cap: 'Controles, pantalla y rendimiento.' },
         { id: 'quit', label: 'Salir', cap: 'Volver al título.' }
     ];
@@ -15842,3 +15876,73 @@ const BombFX = (function () {
     return { start, update, under, over, reset, active: () => !!fx };
 })();
 window.BombFX = BombFX;
+
+
+;
+/* ===== perks.js ===== */
+// PODERES ROGUE-LIKE: tras vencer al jefe de cada zona (al pulsar SEGUIR) eliges 1 de 3 mejoras para el resto de la partida.
+const Perks = (function () {
+    'use strict';
+    const DEF = [
+        { id: 'atk',   ic: '⚔', name: 'MÁS ATAQUE',          desc: 'Tus balas hacen +12% de daño.' },
+        { id: 'fire',  ic: '≫', name: 'VELOCIDAD DE ATAQUE', desc: 'Disparas un 8% más rápido.' },
+        { id: 'speed', ic: '➤', name: 'VELOCIDAD DE NAVE',   desc: 'Tu nave se mueve un 7% más rápido.' }
+    ];
+    let lv = { atk: 0, fire: 0, speed: 0 }, modal = null, done = null, lastIsPlaying = false, keyH = null;
+    const api = {
+        dmgMul() { return 1 + 0.12 * lv.atk; },
+        level: id => lv[id] || 0,
+        reset() { lv = { atk: 0, fire: 0, speed: 0 }; },
+        offer(cb) {
+            if (typeof practiceStage !== 'undefined' && practiceStage) { cb(); return; }
+            done = cb; window.PerkOpen = true;
+            try { stopShoot(); } catch (e) {}
+            if (!modal) build();
+            render(); modal.classList.remove('hidden');
+        }
+    };
+    function pick(id) {
+        if (!window.PerkOpen) return;
+        lv[id]++;
+        if (id === 'speed' && typeof player !== 'undefined' && player) player.speed *= 1.07;
+        close();
+        try { if (window.Extras) Extras.toast('¡PODER!', DEF.find(d => d.id === id).name + ' Nv.' + lv[id], '', '#ffd84a'); } catch (e) {}
+    }
+    function close() {
+        window.PerkOpen = false; if (modal) modal.classList.add('hidden');
+        try { Object.keys(keys).forEach(k => { keys[k] = false; }); } catch (e) {}
+        const cb = done; done = null; if (cb) cb();
+    }
+    function render() {
+        modal.querySelector('.pk-cards').innerHTML = DEF.map((d, i) => `<button class="pk-card" data-id="${d.id}"><span class="pk-ic">${d.ic}</span><b>${i + 1}. ${d.name}</b><i>${d.desc}</i><em>Nivel actual: ${lv[d.id]}</em></button>`).join('');
+        modal.querySelectorAll('.pk-card').forEach(b => b.addEventListener('click', () => pick(b.getAttribute('data-id'))));
+    }
+    function build() {
+        const st = document.createElement('style');
+        st.textContent = `#perkModal{position:absolute;inset:0;z-index:60;background:rgba(0,4,10,.92);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:12px;box-sizing:border-box;overflow-y:auto}
+        #perkModal.hidden{display:none!important}
+        #perkModal h2{margin:0;font-size:14px;color:#ffd84a;letter-spacing:2px;text-align:center}
+        .pk-cards{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;width:100%}
+        .pk-card{font-family:inherit;width:min(200px,90%);display:flex;flex-direction:column;gap:6px;align-items:center;padding:14px 10px;background:#08202e;color:#cde;border:2px solid #25506a;cursor:pointer;border-radius:6px}
+        .pk-card:hover,.pk-card:focus{border-color:#0ff;background:#0b3346;outline:none}
+        .pk-card b{font-size:9px;color:#fff;line-height:1.4}.pk-card i{font-style:normal;font-family:'VT323',monospace;font-size:17px;color:#9cc}.pk-card em{font-style:normal;font-size:7px;color:#5f9}
+        .pk-ic{font-size:26px;color:#0ff;text-shadow:0 0 8px #0ff}`;
+        document.head.appendChild(st);
+        modal = document.createElement('div'); modal.id = 'perkModal'; modal.className = 'hidden';
+        modal.innerHTML = '<h2>¡ZONA SUPERADA!<br>ELIGE UN PODER</h2><div class="pk-cards"></div>';
+        (document.getElementById('gameContainer') || document.body).appendChild(modal);
+        modal.addEventListener('keydown', e => e.stopPropagation());
+        window.addEventListener('keydown', e => {
+            if (!window.PerkOpen) return;
+            const n = { Digit1: 'atk', Digit2: 'fire', Digit3: 'speed', Numpad1: 'atk', Numpad2: 'fire', Numpad3: 'speed' }[e.code];
+            if (n) { e.stopPropagation(); e.preventDefault(); pick(n); }
+        }, true);
+    }
+    // cadencia
+    (function () {
+        const cfd = window.currentFireDelay;
+        if (typeof cfd === 'function') window.currentFireDelay = function () { return Math.max(40, Math.round(cfd.apply(this, arguments) * Math.pow(0.92, lv.fire))); };
+        if (typeof Shop !== 'undefined' && Shop.applyRun) { const ar = Shop.applyRun; Shop.applyRun = function () { api.reset(); return ar.apply(this, arguments); }; }   // nueva partida = poderes a cero
+    })();
+    return api;
+})();
