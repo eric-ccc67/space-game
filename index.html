@@ -386,7 +386,7 @@
         }
         #mcRight { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: none; position: relative; }
         .action-buttons { display: flex; gap: calc(var(--mc-u) * 0.2); align-items: flex-end; pointer-events: none; }
-        .action-btn, #btnAuto, #btnPause, #btnRetroExit {
+        .action-btn, #btnAuto, #btnPause {
             pointer-events: auto; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #fff; text-align: center;
             border-radius: 50%; box-sizing: border-box; opacity: var(--mc-opacity); transition: transform 0.05s, opacity 0.1s;
             text-shadow: 0 2px 0 rgba(0,0,0,0.6);
@@ -401,13 +401,10 @@
         #mobileControls.focus-on #btnFocus { box-shadow: 0 0 18px #b9a0ff; }
         #btnAuto { width: calc(var(--mc-u) * 0.78); height: calc(var(--mc-u) * 0.42); border-radius: 999px; font-size: calc(var(--mc-u) * 0.15); background: rgba(40,40,60,0.55); border: 2px solid rgba(255,255,255,0.45); }
         #btnAuto.on { background: rgba(255,210,60,0.6); border-color: #ffe27a; color: #2a1c00; text-shadow: none; }
-        #btnPause, #btnRetroExit {
+        #btnPause {
             position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(10px, env(safe-area-inset-left)); width: calc(var(--mc-u) * 0.55); height: calc(var(--mc-u) * 0.55);
             background: rgba(20,20,40,0.55); border: 2px solid rgba(255,255,255,0.5); font-size: calc(var(--mc-u) * 0.2); padding: 0;
         }
-        #btnRetroExit { width: auto; border-radius: 10px; padding: 0 12px; font-size: calc(var(--mc-u) * 0.14); background: rgba(160,20,40,0.6); }
-        #btnRetroExit, #mobileControls.retro #btnPause, #mobileControls.retro #btnFocus, #mobileControls.retro #btnAuto { display: none; }
-        #mobileControls.retro #btnRetroExit { display: flex; }
         #mobileControls.retro #btnBomb { background: radial-gradient(circle at 35% 30%, rgba(120,190,255,0.55), rgba(0,80,200,0.45)); border-color: rgba(150,200,255,0.85); }
         #pauseOverlay { position: absolute; inset: 0; z-index: 30; background: rgba(8,4,20,0.78); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; font-family: "Press Start 2P", monospace; color: #fff; }
         #pauseOverlay h2 { font-size: 24px; color: #ffe27a; margin: 0 0 8px; letter-spacing: 3px; }
@@ -915,7 +912,6 @@
         <div id="joyCatch"></div>
         <div id="joystickZone"><div id="joystickBase"><div id="joystickStick"></div></div></div>
         <button id="btnPause" aria-label="Pausa">❚❚</button>
-        <button id="btnRetroExit" aria-label="Salir del portal">SALIR</button>
         <div id="mcRight">
             <button id="btnAuto" aria-label="Disparo automático">AUTO</button>
             <div class="action-buttons">
@@ -939,6 +935,7 @@
     <div id="crtOverlay" aria-hidden="true"></div>
 </div>
 <script src="juego.js"></script>
+<script src="items_sprites.js"></script>
 <script src="perfil.js"></script>
 <script src="invasor.js"></script>
 <script src="choque.js"></script>
@@ -946,6 +943,7 @@
 <script src="aliados.js"></script>
 <script src="naves_fx.js"></script>
 <script src="combo.js"></script>
+<script src="arcoiris_extra.js"></script>
 <!-- IA adaptativa: enemigos y jefes se endurecen según qué tan fuerte esté el jugador (poderes, combo, partners...) -->
 <script src="ia_adaptativa.js"></script>
 <script src="hud_tarjetas.js"></script>

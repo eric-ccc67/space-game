@@ -1,3 +1,15 @@
+# Cambios v38 — Sin portales/mundo retro, Modo Arcoíris con peligros y gemas, sprites nuevos de power-ups
+
+- **Eliminados** el mundo retro de 8 bits y los portales secretos (y su música `retro.mp3`, misiones de portal/monedas y botón SALIR móvil). Como las monedas gigantes ya no existen, **Reimu y Marisa vienen desbloqueadas** (`reimuUnlocked` / `marisaUnlocked` en `extras.js`).
+- **Las gemas ahora salen del Modo Arcoíris** (tienda: pestaña ARCOIRIS con CAZAGEMAS). Misiones nuevas: activar el Modo Arcoíris y ganar gemas en él.
+- **Modo Arcoíris** (`combo.js` + `arcoiris_extra.js`): tinte transparente (centro limpio), dura 20 s y trae:
+  - **Segadores insta-kill**: columna brillante parpadeante con "!" y alarma aguda; luego caen, rebotan abajo y suben (o al revés). Quitan 1 vida aunque tengas escudo (`CFG.INSTAKILL = 'gameover'` para fin de partida).
+  - **Hordas** ultrarrápidas: cada enemigo suelta gemas.
+  - **Dorados x2**: más lentos, dan el doble de gemas.
+- **`items_sprites.js`**: tarjetas de power-ups y de P/G/A rediseñadas (orbes con sombreado, colores suavizados, animación suave sin parpadeos).
+
+---
+
 # Cambios v37 — Sin poderes de combo, partners más justos y más sobrepoder
 
 - **Se eliminaron los poderes únicos de combo** (Imán estelar, Láser, Satélites y Furia) y todo su HUD. Quedó solo el bonus de daño a los partners.

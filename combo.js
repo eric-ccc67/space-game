@@ -10,6 +10,8 @@
 //        - la pantalla de juego se tiñe de arcoíris que se desliza, con marco brillante y confeti que sube
 //        - PREMIO: escudo + disparo doble + súper disparo + 1 bomba + lluvia de power-ups (incluidos los de Caos)
 //        - el combo no se acaba mientras dura
+//  v38 · el tinte arcoíris ahora es TRANSPARENTE (centro casi limpio, el color se concentra hacia los bordes) para ver bien las balas y
+//        los enemigos, y el modo dura 20 s e incluye SEGADORES insta-kill, HORDAS rápidas con gemas y ENEMIGOS DORADOS x2 (arcoiris_extra.js).
 //  · OPTIMIZADO: el arcoíris y el marco son una capa CSS animada (transform + keyframes, la compone la GPU: el lienzo
 //    no pinta ni un píxel extra), sin shadowBlur, confeti limitado (26 / 10 en bajo rendimiento) y, en ese modo, sin mezcla de color.
 //
@@ -30,7 +32,7 @@
     // ---------------------------------------------------------------- ajustes
     const WIN = 150;                 // cuadros para mantener el combo entre kills (150 = 2.5 s)
     const RAINBOW_AT = 50;           // combo que activa el Modo Arcoíris (y cada múltiplo)
-    const RAINBOW_FRAMES = 720;      // duración (12 s a 60 fps)
+    const RAINBOW_FRAMES = 1200;     // duración (20 s a 60 fps). v38: más larga para que quepan los segadores, la horda y los dorados
     const END_BONUS = true;          // al terminar un combo cobras n*n puntos (x20 = 400, x50 = 2500)
     const RANKS = [
         { n: 3, l: 'D', w: '¡BIEN!', c: '#9aa6b8' }, { n: 8, l: 'C', w: '¡GENIAL!', c: '#4ad0ff' }, { n: 15, l: 'B', w: '¡BRUTAL!', c: '#5aff8a' },
@@ -110,15 +112,16 @@
     function startRainbow() {
         C.rainbow = RAINBOW_FRAMES; C.rbBanner = 130; C.flash = 1; C.word = '¡MODO ARCOÍRIS!'; C.wordT = 100; C.wordCol = '#fff';
         const now = Date.now();
-        powerUps.shield = Math.max(powerUps.shield, now + 12000);
-        powerUps.doubleFire = Math.max(powerUps.doubleFire, now + 12000);
-        powerUps.superShot = Math.max(powerUps.superShot, now + 10000);
+        powerUps.shield = Math.max(powerUps.shield, now + 20000);
+        powerUps.doubleFire = Math.max(powerUps.doubleFire, now + 20000);
+        powerUps.superShot = Math.max(powerUps.superShot, now + 16000);
         try { if (typeof setBombStock === 'function' && bombStock < BOMB_MAX) setBombStock(bombStock + 1); } catch (e) {}
         try {                                                  // lluvia de power-ups (los de siempre y los de Caos)
             if (typeof Item === 'function' && Array.isArray(items)) for (let i = 0; i < 5; i++) { const it = new Item(30 + (PW() - 60) * (i + 0.5) / 5, -20 - i * 38); it.vy = 2.1; items.push(it); }
         } catch (e) {}
         screenShake = Math.max(screenShake, 14);
         arpeggio(262, [1, 1.25, 1.5, 2, 2.5, 3]);
+        try { if (window.ArcoirisExtra) ArcoirisExtra.start(); } catch (e) {}      // v38: segadores, horda y dorados
     }
 
 
@@ -271,9 +274,10 @@
         const st = document.createElement('style');
         st.textContent = '#rbFx{position:fixed;pointer-events:none;z-index:3;overflow:hidden;opacity:0;transition:opacity .45s ease;display:none}' +
             '#rbFx.on{opacity:1}' +
-            '#rbFx .band{position:absolute;left:0;top:0;width:300%;height:100%;background:linear-gradient(90deg,#ff3355,#ff9a33,#ffee33,#33ee66,#33ccff,#6666ff,#dd44ff,#ff3355);background-size:33.3334% 100%;background-repeat:repeat-x;opacity:.36;animation:rbSlide 4.5s linear infinite;will-change:transform}' +
-            '#rbFx.hi .band{mix-blend-mode:overlay;opacity:.8}' +
-            '#rbFx .frame{position:absolute;left:0;top:0;right:0;bottom:0;border:5px solid #ff3355;box-sizing:border-box;box-shadow:inset 0 0 22px rgba(255,255,255,.35);animation:rbBorder 1.4s linear infinite}' +
+            '#rbFx{-webkit-mask-image:radial-gradient(ellipse at 50% 50%,rgba(0,0,0,.12) 0%,rgba(0,0,0,.2) 45%,rgba(0,0,0,.85) 100%);mask-image:radial-gradient(ellipse at 50% 50%,rgba(0,0,0,.12) 0%,rgba(0,0,0,.2) 45%,rgba(0,0,0,.85) 100%)}' +
+            '#rbFx .band{position:absolute;left:0;top:0;width:300%;height:100%;background:linear-gradient(90deg,#ff3355,#ff9a33,#ffee33,#33ee66,#33ccff,#6666ff,#dd44ff,#ff3355);background-size:33.3334% 100%;background-repeat:repeat-x;opacity:.22;animation:rbSlide 4.5s linear infinite;will-change:transform}' +
+            '#rbFx.hi .band{mix-blend-mode:overlay;opacity:.5}' +
+            '#rbFx .frame{position:absolute;left:0;top:0;right:0;bottom:0;border:4px solid #ff3355;box-sizing:border-box;box-shadow:inset 0 0 16px rgba(255,255,255,.22);animation:rbBorder 1.4s linear infinite}' +
             '@keyframes rbSlide{from{transform:translateX(0)}to{transform:translateX(-33.3334%)}}' +
             '@keyframes rbBorder{0%{border-color:#ff3355}16%{border-color:#ff9a33}33%{border-color:#ffee33}50%{border-color:#33ee66}66%{border-color:#33ccff}83%{border-color:#dd44ff}100%{border-color:#ff3355}}';
         document.head.appendChild(st);
@@ -383,9 +387,10 @@
         let on = false; try { on = (typeof isPlaying !== 'undefined' && isPlaying && currentMode !== 'clasico'); } catch (e) {}
         if (on) { try { tick(); drawRainbow(); } catch (e) { console.warn('combo:', e); } }
         if (on) { try { fodderStep(); perksFrame(); } catch (e) { console.warn('combo extras:', e); } }
+        if (on) { try { if (window.ArcoirisExtra) ArcoirisExtra.frame(); } catch (e) { console.warn('arcoiris_extra:', e); } }
         const r = prevHud.apply(this, arguments);
         if (on) { try { drawCombo(); drawPerks(); } catch (e) { console.warn('combo HUD:', e); } }
         return r;
     };
-    window.Combo = { state: C, kill, graze, startRainbow, reset, RANKS, partnerBonus, multiplyCombo, frozen, fodder };
+    window.Combo = { state: C, kill, graze, startRainbow, reset, RANKS, partnerBonus, multiplyCombo, frozen, fodder, RAINBOW_FRAMES };
 })();
