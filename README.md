@@ -1,4 +1,5 @@
 ## v39
+- Arreglo: misiones diarias guardadas de una versión vieja (id inexistente) ya no dejan la pantalla negra; se regeneran solas.
 - Konami táctil (menú principal): desliza ↑ ↑ ↓ ↓ ← → ← →, toca la nave (B) y toca la luna (A). El del teclado sigue igual.
 - Fin del juego: al guardar nombre y puntaje se vuelve al menú (no reinicia el nivel 1; Modo Infinito sin cambios). El menú ignora Enter repetido.
 - Enemigos especiales (`especiales.js`): de ATAQUE (bonus x1.25 solo a tu nave) y de GEMAS.

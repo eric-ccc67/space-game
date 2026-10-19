@@ -6842,9 +6842,9 @@ const Extras = (function () {
     }
     function ensureToday() {
         const k = dayKey();
-        if (!daily || daily.day !== k || !Array.isArray(daily.list)) { daily = genDaily(k); save(); }
+        if (!daily || daily.day !== k || !Array.isArray(daily.list) || daily.list.some(m => !m || !defOf(m.id))) { daily = genDaily(k); save(); }   // v39: también si hay misiones guardadas de una versión vieja
     }
-    const missionText = m => { const d = defOf(m.id); return d.text(m.target, m); };
+    const missionText = m => { const d = defOf(m.id); return d ? d.text(m.target, m) : '—'; };
 
     function complete(m) {
         m.done = true; m.progress = m.target;
@@ -6868,7 +6868,7 @@ const Extras = (function () {
         for (const m of daily.list) {
             if (m.done) continue;
             const d = defOf(m.id);
-            if (d.ev !== ev || d.kind !== 'add') continue;
+            if (!d || d.ev !== ev || d.kind !== 'add') continue;
             m.progress += n; dirty = true;
             if (m.progress >= m.target) complete(m);
         }
@@ -6878,7 +6878,7 @@ const Extras = (function () {
         for (const m of daily.list) {
             if (m.done) continue;
             const d = defOf(m.id);
-            if (d.ev !== ev || d.kind !== 'max') continue;
+            if (!d || d.ev !== ev || d.kind !== 'max') continue;
             if (ev === 'shipScore' && selectedShipType !== m.ship) continue;
             if (ev === 'hardLevel' && !(currentDiff === 'dificil' || currentDiff === 'lunatico')) continue;
             if (v > m.progress) { m.progress = v; dirty = true; if (m.progress >= m.target) complete(m); }
@@ -6931,7 +6931,7 @@ const Extras = (function () {
         let h = `<div class="mi-head"><span>MISIONES DIARIAS</span><span class="mi-count">${done}/3</span></div>`;
         daily.list.forEach(m => {
             const pct = Math.min(100, Math.floor(m.progress / m.target * 100)), d = defOf(m.id);
-            const prog = d.mult ? `${Math.floor(m.progress / 60)}/${m.target / 60} min` : `${fmt(Math.min(m.progress, m.target))}/${fmt(m.target)}`;
+            const prog = (d && d.mult) ? `${Math.floor(m.progress / 60)}/${m.target / 60} min` : `${fmt(Math.min(m.progress, m.target))}/${fmt(m.target)}`;
             h += `<div class="mi-row ${m.done ? 'done' : ''}" style="--tone:${TIER_COL[m.tier]}">
                 <div class="mi-text"><span class="mi-tier">${'★'.repeat(m.tier + 1)}</span> ${missionText(m)}</div>
                 <div class="mi-bar"><i style="width:${pct}%"></i></div>
