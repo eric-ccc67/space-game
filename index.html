@@ -1,6 +1,31 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script>
+/* v39: aviso de errores en pantalla (el móvil no tiene consola). Si el juego se ve negro, aquí sale el motivo en rojo.
+   Toca el aviso para cerrarlo. Se puede borrar este bloque sin afectar nada. */
+(function () {
+    var shown = 0;
+    function show(msg) {
+        if (shown++ > 2) return;
+        var d = document.createElement('div');
+        d.style.cssText = 'position:fixed;left:6px;right:6px;top:6px;z-index:2147483647;background:rgba(120,0,0,.94);color:#fff;font:12px/1.35 monospace;padding:8px 10px;border:1px solid #f66;border-radius:6px;white-space:pre-wrap;word-break:break-word;max-height:45vh;overflow:auto';
+        d.textContent = 'ERROR DEL JUEGO (toca para cerrar)\n' + msg;
+        d.onclick = function () { d.remove(); };
+        (document.body || document.documentElement).appendChild(d);
+    }
+    window.addEventListener('error', function (e) {
+        if (e.target && e.target !== window && (e.target.src || e.target.href)) {         // archivo que no carga (404)
+            var u = e.target.src || e.target.href;
+            if (u.indexOf(location.origin) === 0 && /\.(js|css)(\?|$)/.test(u)) show('NO SE PUDO CARGAR EL ARCHIVO:\n' + u);
+            return;
+        }
+        show((e.message || 'error') + '\n' + (e.filename || '').split('/').slice(-2).join('/') + ':' + (e.lineno || '?') + ':' + (e.colno || '?'));
+    }, true);
+    window.addEventListener('unhandledrejection', function (e) { var r = e.reason; show('Promesa rechazada: ' + (r && (r.stack || r.message) || r)); });
+})();
+</script>
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <title>Space Game</title>
