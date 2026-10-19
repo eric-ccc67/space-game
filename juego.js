@@ -3994,7 +3994,7 @@ function createExplosion(x, y, color, amount = 30, isImpact = false) {
 function playerDmgMul(b) {
     if (!b || b.isEnemy || b.source === 'partner') return 1;
     let m = 1;
-    try { if (window.Perks) m *= Perks.dmgMul(); } catch (e) {}
+    try { if (typeof Perks !== 'undefined') m *= Perks.dmgMul(); } catch (e) {}
     try { if (typeof Shop !== 'undefined' && Shop.dmgMul) m *= Shop.dmgMul(b); } catch (e) {}
     try { if (window.Specials && Specials.atkMul) m *= Specials.atkMul(); } catch (e) {}
     return m;
@@ -5153,7 +5153,7 @@ function gameLoop() {
                     if (levelCompleteHits >= LEVEL_COMPLETE_HITS_NEEDED) {
                         levelCompleteActive = false;
                         levelCompleteData = null;
-                        if (window.Perks) Perks.offer(nextWave); else nextWave();
+                        if (typeof Perks !== 'undefined') Perks.offer(nextWave); else nextWave();
                     }
                     continue;
                 }
