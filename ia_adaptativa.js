@@ -16,7 +16,8 @@
 //    · las MINI SECCIONES (eventos especiales) arrancan antes, avisan menos, son más rápidas y traen más cosas (y una 4.ª mini sección)
 //  Todo escala "un poco" según la dificultad (Fácil < Medio < Difícil < Lunático).
 //
-//  PODERES DE COMBO: en la fuerza cuentan x4 por nivel (COMBO_PERK_WEIGHT), no x15.
+//  v36: se quitaron los poderes únicos de combo; cuenta el bonus de partners por combo. Si la fuerza pasa del tope (jugador roto)
+//  entra el SOBREPODER: aún más enemigos a la vez, más ritmo de aparición y más defensa (sobre todo en jefes).
 //
 //  No modifica el balance base: solo engancha funciones (enemyDefenseFactor, bossDefenseFactor, Enemy.update, Enemy.maybeShoot,
 //  drawHud) y ajusta difficultySettings mientras se juega (se restaura al salir). Las mini secciones consultan este módulo desde
@@ -39,7 +40,8 @@
         enabled: true,
 
         // --- cómo se mide la fuerza del jugador (puntos; con SCORE_FULL puntos la amenaza llega al máximo)
-        SCORE_FULL: 90,
+        SCORE_FULL: 85,            // con tanta fuerza la amenaza llega a 1
+        SCORE_OVER: 15,            // v36: puntos EXTRA por encima de SCORE_FULL hasta el "sobrepoder" máximo (jugador roto)
         W_ATTACK: 28,              // Nivel de Ataque (1 a 15)
         W_PARTNERS: 14,            // partners (0 a 6)
         W_POWERUP: { doubleFire: 7, superShot: 7, shield: 3, paralyze: 2 },   // power-ups de siempre mientras duran
@@ -47,8 +49,7 @@
         W_BOMBS: 4,                // stock de bombas (0 a 4)
         W_COMBO: 10,               // tamaño del combo (llega al tope en x80)
         W_RAINBOW: 8,              // Modo Arcoíris activo
-        COMBO_PERK_WEIGHT: 4,      // PODERES DE COMBO: cada nivel de poder suma x4 (no x15)
-        COMBO_PERK_CAP: 24,        // tope de lo que pueden sumar los poderes de combo
+        W_PARTNER_BONUS: 12,       // v36: bonus de daño de partners por combo (llega al tope con +3.0)
 
         // --- rapidez con la que la amenaza sube / baja (por cuadro)
         RISE: 0.02, FALL: 0.004,
@@ -63,8 +64,14 @@
         SPAWN_RATE_MAX: 0.55,      // +55 % de ritmo de aparición de enemigos
         MAX_ENEMIES_MAX: 3,        // +3 enemigos a la vez
         FORMATION_MAX: 0.35,       // las filas en formación llegan ~35 % más seguido
-        ENEMY_DEF_MAX: 0.50,       // +50 % de defensa de enemigos comunes
-        BOSS_DEF_MAX: 0.60,        // +60 % de defensa de jefes y mini jefes
+        ENEMY_DEF_MAX: 0.70,       // +70 % de defensa de enemigos comunes
+        BOSS_DEF_MAX: 1.00,        // +100 % de defensa de jefes y mini jefes
+        // v36 · SOBREPODER: lo que se suma cuando la fuerza pasa de SCORE_FULL (jugador roto). Se multiplica también por la dificultad.
+        OVER_ENEMIES: 4,           // +4 enemigos a la vez extra
+        OVER_SPAWN: 0.50,          // +50 % de ritmo de aparición extra
+        OVER_ENEMY_DEF: 0.50,      // +50 % de defensa de enemigos extra
+        OVER_BOSS_DEF: 0.80,       // +80 % de defensa de jefes extra
+        MAX_ENEMIES_CAP: 24,       // tope absoluto de enemigos a la vez
         BOSS_REST_MAX: 0.12,       // jefes/enemigos esperan hasta 12 % menos entre disparos y habilidades
         DENSITY_MAX: 0.08,         // +8 % de densidad de balas en los patrones
         EVENT_TELE_MAX: 0.22,      // aviso de las mini secciones hasta 22 % más corto (nunca baja de 60 % del original)
@@ -76,7 +83,7 @@
     };
 
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-    const S = { raw: 0, T: 0, E: 0, frame: 0, force: null, parts: {} };
+    const S = { raw: 0, T: 0, E: 0, O: 0, OE: 0, frame: 0, force: null, parts: {} };
 
     // ---------------------------------------------------------------- ¿está activa?
     function active() {
@@ -97,17 +104,16 @@
         try { if (window.Caos && Caos.keys) Caos.keys.forEach(k => { if (powerUps[k] > now) ch += CFG.W_CHAOS * (CHAOS_LIGHT[k] !== undefined ? CHAOS_LIGHT[k] : 1); }); } catch (e) {}
         P.caos = Math.min(CFG.CHAOS_CAP, ch);
         P.bombas = clamp((typeof bombStock !== 'undefined' ? bombStock : 0) / Math.max(1, BOMB_MAX), 0, 1) * CFG.W_BOMBS;
-        let cb = 0, pk = 0, rb = 0;
+        let cb = 0, pb = 0, rb = 0;
         const C = window.Combo && Combo.state;
         if (C && C.alive && C.n > 0) {
             cb = clamp(C.n / 80, 0, 1) * CFG.W_COMBO;
             if (C.rainbow > 0) rb = CFG.W_RAINBOW;
-            const p = C.perks || {}, lv = (p.iman | 0) + (p.laser | 0) + (p.orbes | 0) + (p.furia | 0);
-            pk = Math.min(CFG.COMBO_PERK_CAP, lv * CFG.COMBO_PERK_WEIGHT);        // x4 por nivel de poder de combo
+            try { pb = clamp(Combo.partnerBonus() / 3, 0, 1) * CFG.W_PARTNER_BONUS; } catch (e) {}
         }
-        P.combo = cb; P.poderesCombo = pk; P.arcoiris = rb;
+        P.combo = cb; P.bonusPartners = pb; P.arcoiris = rb;
         S.parts = P;
-        return P.ataque + P.partners + P.powerups + P.caos + P.bombas + P.combo + P.poderesCombo + P.arcoiris;
+        return P.ataque + P.partners + P.powerups + P.caos + P.bombas + P.combo + P.bonusPartners + P.arcoiris;
     }
 
     // ---------------------------------------------------------------- ajustes de dificultad en vivo
@@ -125,8 +131,10 @@
         if (lastKey && lastKey !== k) restoreKey(lastKey);
         lastKey = k;
         const E = S.E;
-        d.enemySpawnRate = b.enemySpawnRate * (1 + CFG.SPAWN_RATE_MAX * E);
-        d.maxEnemies = b.maxEnemies + Math.round(CFG.MAX_ENEMIES_MAX * E);
+        const OE = S.OE;
+        d.enemySpawnRate = b.enemySpawnRate * (1 + CFG.SPAWN_RATE_MAX * E + CFG.OVER_SPAWN * OE);
+        const late = (typeof lunaticLate === 'function') ? lunaticLate() : 0;     // juego.js suma +2 por nivel tardío de Lunático
+        d.maxEnemies = Math.max(b.maxEnemies, Math.min(b.maxEnemies + Math.round(CFG.MAX_ENEMIES_MAX * E + CFG.OVER_ENEMIES * OE), CFG.MAX_ENEMIES_CAP - late * 2));
         d.bulletIntervalMult = b.bulletIntervalMult * (1 - CFG.BOSS_REST_MAX * E);
         d.bulletDensity = b.bulletDensity * (1 + CFG.DENSITY_MAX * E);
     }
@@ -145,32 +153,35 @@
 
     // ---------------------------------------------------------------- tick (una vez por cuadro de juego)
     function tick() {
-        if (!active()) { if (S.T > 0 || lastKey) { S.T = 0; S.E = 0; S.raw = 0; restoreAll(); } return; }
+        if (!active()) { if (S.T > 0 || lastKey) { S.T = 0; S.E = 0; S.O = 0; S.OE = 0; S.raw = 0; restoreAll(); } return; }
         S.frame++;
         if (S.frame % 6 === 0 || S.frame === 1) S.raw = rawStrength();
         const target = S.force !== null ? clamp(S.force, 0, 1) : clamp(S.raw / CFG.SCORE_FULL, 0, 1);
         S.T += (target - S.T) * (target > S.T ? CFG.RISE : CFG.FALL);
         if (Math.abs(target - S.T) < 0.0005) S.T = target;
         S.E = clamp(S.T * dk(), 0, 1.4);
+        const tgtO = S.force !== null ? 0 : clamp((S.raw - CFG.SCORE_FULL) / CFG.SCORE_OVER, 0, 1);
+        S.O += (tgtO - S.O) * (tgtO > S.O ? CFG.RISE : CFG.FALL);
+        S.OE = clamp(S.O * dk(), 0, 1.4);
         applyDiff();
         // más filas en formación
         try { if ((levelPhase === 'wave1' || levelPhase === 'wave2') && formationCooldown > 1) formationCooldown -= CFG.FORMATION_MAX * S.E; } catch (e) {}
         applyBossEvents();
     }
-    setInterval(() => { if (typeof isPlaying !== 'undefined' && !isPlaying && (S.T > 0 || lastKey)) { S.T = 0; S.E = 0; S.raw = 0; S.frame = 0; restoreAll(); } }, 400);
+    setInterval(() => { if (typeof isPlaying !== 'undefined' && !isPlaying && (S.T > 0 || lastKey)) { S.T = 0; S.E = 0; S.O = 0; S.OE = 0; S.raw = 0; S.frame = 0; restoreAll(); } }, 400);
 
     // ---------------------------------------------------------------- DEFENSA (enemigos comunes y jefes)
     const _ed = window.enemyDefenseFactor;
     window.enemyDefenseFactor = function (e) {
         const f = _ed.apply(this, arguments);
         if (!active() || (e && (e.isMinion || e.isFodder))) return f;
-        return f * (1 + CFG.ENEMY_DEF_MAX * S.E);
+        return f * (1 + CFG.ENEMY_DEF_MAX * S.E + CFG.OVER_ENEMY_DEF * S.OE);
     };
     const _bd = window.bossDefenseFactor;
     window.bossDefenseFactor = function () {
         const f = _bd.apply(this, arguments);
         if (!active()) return f;
-        return f * (1 + CFG.BOSS_DEF_MAX * S.E);
+        return f * (1 + CFG.BOSS_DEF_MAX * S.E + CFG.OVER_BOSS_DEF * S.OE);
     };
 
     // ---------------------------------------------------------------- BAJAN MÁS RÁPIDO

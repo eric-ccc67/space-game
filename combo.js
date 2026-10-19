@@ -19,9 +19,8 @@
 //  · Mientras peleas con un MINI JEFE o un JEFE aparecen enemigos pequeños (1 golpe, inofensivos) para que puedas seguir
 //    sumando combo. Disparar al jefe también mantiene el combo vivo (cada impacto rellena la barra de tiempo).
 //  · Al matar a un mini jefe o a un jefe, el combo se MULTIPLICA x2.
-//  · Cada 10 de combo (10, 20, 30, 40...): +0.5 de daño a los disparos de tus partners (mientras dure el combo).
-//  · Cada 25 de combo (25, 50, 75, 100...): un PODER ÚNICO DE COMBO (Imán estelar, Láser, Satélites, Furia; luego se repiten
-//    y suben de nivel). Desaparecen en cuanto el combo se acaba o te golpean.
+//  · Cada 10 de combo (10, 20, 30, 40...): +0.10 de daño a los disparos de tus partners (mientras dure el combo).
+//  · (v36: se ELIMINARON los poderes únicos de combo — Imán, Láser, Satélites y Furia. Solo queda el bonus a los partners.)
 //  Se carga DESPUÉS de juego.js. Ajusta las constantes de abajo. Si quitas el <script>, el juego sigue igual.
 // ============================================================================================
 (function () {
@@ -42,9 +41,9 @@
     // --- v35: jefes, partners y poderes de combo
     const BOSS_KILL_MULT = 2;            // al matar mini jefe / jefe el combo se multiplica por esto
     const TEN_STEP = 10;                 // cada cuántos combos suben los partners
-    const PARTNER_POWER_STEP = 0.5;      // daño extra por disparo de partner en cada escalón (su daño base es 0.3)
+    const PARTNER_POWER_STEP = 0.10;      // v36: daño extra por disparo de partner en cada escalón de 10 combos (antes 0.5; su daño base es 0.3)
+    const PARTNER_BONUS_MAX = 3.0;        // v36: tope del bonus total (3.0 = llega a x30 combos y ahí se queda). Pon Infinity para quitarlo
     const PARTNER_KEEP_TIER = false;     // false = el bonus baja si pierdes el combo · true = se conserva en toda la partida
-    const PERK_EVERY = 25;              // cada cuántos combos llega un poder único
     const FODDER_INTERVAL = 70;          // cuadros entre enemigos pequeños durante jefes (70 = 1.2 s)
     const FODDER_MAX = 3;                // máximo a la vez
     const FODDER_SIZE = 46;              // tamaño (px)
@@ -60,7 +59,7 @@
 
     const C = { alive: false, n: 0, t: 0, disp: 0, pop: 0, ri: -1, flash: 0, word: '', wordT: 0, wordCol: '#fff', breakT: 0, breakN: 0, endT: 0, endN: 0, endBonus: 0,
         gz: 0, lives: 0, rainbow: 0, nextRb: RAINBOW_AT, rbBanner: 0, frame: 0, sparks: [], shakeX: 0, shakeY: 0, slash: 0, ms: 0,
-        tier: 0, perks: { iman: 0, laser: 0, orbes: 0, furia: 0 }, perkT: 0, perkName: '', perkDesc: '', perkLv: 0, perkCol: '#fff', lostT: 0, pbT: 0, fz: false, hr: [null, null], hp: [0, 0] };
+        tier: 0, lostT: 0, pbT: 0, fz: false, hr: [null, null], hp: [0, 0] };
     const fodder = [];                     // enemigos pequeños que aparecen durante los jefes
     let fodderT = 0;
 
@@ -79,7 +78,7 @@
     // ---------------------------------------------------------------- lógica del combo
     function rankIdx(n) { let r = -1; for (let i = 0; i < RANKS.length; i++) if (n >= RANKS[i].n) r = i; return r; }
     function reset() { C.n = 0; C.t = 0; C.disp = 0; C.ri = -1; C.flash = 0; C.wordT = 0; C.breakT = 0; C.endT = 0; C.rainbow = 0; C.nextRb = RAINBOW_AT; C.gz = 0; C.sparks.length = 0; C.lives = (typeof lives !== 'undefined') ? lives : 0;
-        C.tier = 0; C.perks.iman = C.perks.laser = C.perks.orbes = C.perks.furia = 0; C.perkT = 0; C.lostT = 0; C.pbT = 0; C.hr = [null, null]; C.hp = [0, 0]; fodder.length = 0; fodderT = 0; }
+        C.tier = 0; C.lostT = 0; C.pbT = 0; C.hr = [null, null]; C.hp = [0, 0]; fodder.length = 0; fodderT = 0; }
     // Se llama cada vez que C.n sube (kill, graze, multiplicador de jefe): rango, hitos de 10, poderes de 25 y arcoíris.
     function afterAdvance(old) {
         const n = C.n, ri = rankIdx(n), a10 = Math.floor(old / TEN_STEP), b10 = Math.floor(n / TEN_STEP);
@@ -89,7 +88,6 @@
             arpeggio(300 + ri * 40, [1, 1.25, 1.5, 2].slice(0, 2 + Math.min(2, ri)));
         } else if (b10 > a10) { C.word = 'x' + (b10 * TEN_STEP) + '!'; C.wordT = 50; C.wordCol = rankCol(RANKS[Math.max(0, C.ri)], C.frame); C.flash = 0.6; screenShake = Math.max(screenShake, 5); beep(700, 1100, 0.12, 'square', 0.035); }
         if (b10 > a10) { C.tier = Math.max(C.tier, b10); C.pbT = 100; beep(900, 1500, 0.1, 'triangle', 0.035); }          // partners +0.5
-        for (let m = Math.floor(old / PERK_EVERY) + 1; m <= Math.floor(n / PERK_EVERY); m++) grantPerk(m);              // poderes únicos
         let go = false; while (C.n >= C.nextRb) { C.nextRb += RAINBOW_AT; go = true; }
         if (go) startRainbow();
     }
@@ -102,12 +100,12 @@
     function graze() { C.gz++; if (C.n > 0) { C.t = Math.min(C.rainbow > 0 ? WIN * 2 : WIN, C.t + 20); if (C.gz % 6 === 0) { const o = C.n; C.n++; C.pop = 0.6; afterAdvance(o); } } }
     function breakCombo() {
         if (C.n >= 5) { C.breakT = 60; C.breakN = C.n; beep(220, 70, 0.3, 'sawtooth', 0.05); screenShake = Math.max(screenShake, 8); }
-        C.n = 0; C.t = 0; C.ri = -1; C.flash = 0; clearPerks(true);
+        C.n = 0; C.t = 0; C.ri = -1; C.flash = 0;
     }
     function endCombo() {
         if (C.n >= 5 && END_BONUS) { const b = C.n * C.n; score += b; C.endBonus = b; }
         if (C.n >= 5) { C.endT = 70; C.endN = C.n; }
-        C.n = 0; C.ri = -1; clearPerks(true);
+        C.n = 0; C.ri = -1;
     }
     function startRainbow() {
         C.rainbow = RAINBOW_FRAMES; C.rbBanner = 130; C.flash = 1; C.word = '¡MODO ARCOÍRIS!'; C.wordT = 100; C.wordCol = '#fff';
@@ -125,29 +123,11 @@
 
 
     // ================================================================ v35 · PARTNERS, PODERES ÚNICOS, JEFES
-    const PERKS = [
-        { k: 'iman',  n: 'IMAN ESTELAR',       c: '#5aff8a', d: 'LOS ITEMS VUELAN HACIA TU NAVE' },
-        { k: 'laser', n: 'LASER DE COMBO',     c: '#4ad0ff', d: 'RAYO PERFORANTE CONSTANTE' },
-        { k: 'orbes', n: 'SATELITES DE COMBO', c: '#ffd23a', d: 'ORBES QUE DISPARAN CONTIGO' },
-        { k: 'furia', n: 'FURIA DE COMBO',     c: '#ff5a3a', d: '+25% DE DANO A TODO' }
-    ];
-    const hasPerks = () => PERKS.some(q => C.perks[q.k] > 0);
-    function clearPerks(announce) {
-        const had = hasPerks();
-        PERKS.forEach(q => { C.perks[q.k] = 0; }); C.perkT = 0;
-        if (had && announce) { C.lostT = 80; beep(330, 90, 0.25, 'sawtooth', 0.04); }
-    }
-    function grantPerk(m) {
-        const q = PERKS[(m - 1) % PERKS.length];
-        C.perks[q.k]++; C.perkT = 170; C.perkName = q.n; C.perkDesc = q.d; C.perkLv = C.perks[q.k]; C.perkCol = q.c;
-        C.flash = Math.max(C.flash, 0.8); screenShake = Math.max(screenShake, 7);
-        arpeggio(330, [1, 1.25, 1.5, 2, 2.5]);
-    }
     // daño extra de los disparos de partners (juego.js / invasor.js / eventos_jefes.js lo suman al daño base)
     function partnerBonus() {
         if (!C.alive) return 0;
         const tier = PARTNER_KEEP_TIER ? C.tier : (C.n > 0 ? Math.floor(C.n / TEN_STEP) : 0);
-        return tier * PARTNER_POWER_STEP;
+        return Math.min(PARTNER_BONUS_MAX, tier * PARTNER_POWER_STEP);
     }
     // al matar un jefe: el combo se multiplica
     function multiplyCombo(k, label) {
@@ -231,61 +211,15 @@
     }
 
     // ---------------------------------------------------------------- poderes únicos de combo (efecto + dibujo)
-    function drawBeam(b) {
-        ctx.save();
-        if (low()) { ctx.fillStyle = '#7ff'; ctx.fillRect(b.x, b.y, b.width, b.height); }
-        else {
-            const g = ctx.createLinearGradient(0, b.y, 0, b.y + b.height);
-            g.addColorStop(0, 'rgba(160,255,255,0)'); g.addColorStop(0.55, 'rgba(110,235,255,0.95)'); g.addColorStop(1, '#fff');
-            ctx.fillStyle = g; ctx.fillRect(b.x, b.y, b.width, b.height);
-        }
-        ctx.fillStyle = '#fff'; ctx.fillRect(b.x + b.width / 2 - 1, b.y + 6, 2, b.height - 8);
-        ctx.restore();
-    }
-    function fireLaser(px, py, lv) {
-        const xs = lv >= 3 ? [-14, 0, 14] : [0];
-        xs.forEach(dx => {
-            const b = new Bullet(px + dx, py, false, false, 0, -17);
-            b.width = 8; b.height = 46; b.x = px + dx - 4; b.pierce = true; b.hitList = []; b.dmgMult = 0.8 + 0.2 * lv; b.color = '#7ff'; b.drawFn = drawBeam;
-            bullets.push(b);
-        });
-    }
     function perksFrame() {
         if (typeof player === 'undefined' || !player) return;
         if (typeof Cine !== 'undefined' && Cine.hidesPlayer && Cine.hidesPlayer()) return;
-        const t = C.frame, pk = C.perks, px = player.x + player.width / 2, py = player.y + player.height / 2, fz = C.fz, pb = partnerBonus();
+        const t = C.frame, pb = partnerBonus();
 
         // anillos en los partners: más grandes cuanto más bonus
         if (pb > 0 && C.n > 0 && typeof partners !== 'undefined' && partners.length) {
-            ctx.save(); ctx.strokeStyle = '#7fe0ff'; ctx.lineWidth = 1.5; ctx.globalAlpha = Math.min(0.85, 0.3 + pb * 0.05);
-            partners.forEach(q => { ctx.beginPath(); ctx.arc(q.x, q.y, 12 + S(t * 0.2 + q.x) * 1.5 + Math.min(6, pb), 0, TAU); ctx.stroke(); });
-            ctx.restore();
-        }
-        if (C.n <= 0) return;
-
-        // IMÁN ESTELAR
-        if (pk.iman > 0) {
-            if (typeof pointItems !== 'undefined') for (let i = 0; i < pointItems.length; i++) pointItems[i].magnet = true;
-            if (pk.iman > 1 && typeof items !== 'undefined') items.forEach(it => { it.x += (px - (it.x + it.width / 2)) * 0.03; it.y += (py - (it.y + it.height / 2)) * 0.03; });
-        }
-        // LÁSER DE COMBO
-        if (pk.laser > 0 && !fz && t % Math.max(7, 16 - pk.laser * 2) === 0) fireLaser(px, player.y, pk.laser);
-        // SATÉLITES DE COMBO: orbes que giran alrededor de la nave y disparan balas autodirigidas (cuentan como partners)
-        if (pk.orbes > 0) {
-            const n = Math.min(4, 1 + pk.orbes), ang = t * 0.05;
-            for (let i = 0; i < n; i++) {
-                const a = ang + i * TAU / n, ox = px + C0(a) * 40, oy = py + S(a) * 26;
-                ctx.save(); ctx.fillStyle = 'rgba(255,210,58,0.28)'; ctx.beginPath(); ctx.arc(ox, oy, 9, 0, TAU); ctx.fill();
-                ctx.fillStyle = '#ffd23a'; ctx.beginPath(); ctx.arc(ox, oy, 5, 0, TAU); ctx.fill();
-                ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ox, oy, 2, 0, TAU); ctx.fill(); ctx.restore();
-                if (!fz && (t + i * 7) % 24 === 0) bullets.push(new Bullet(ox, oy - 6, false, false, 0, -8, 'partner', 'partnerSquare', '#ffd23a'));
-            }
-        }
-        // FURIA DE COMBO (el +25 % de daño por nivel está en el gancho de enemyDefenseFactor / bossDefenseFactor)
-        if (pk.furia > 0) {
-            ctx.save(); ctx.globalAlpha = 0.45 + 0.25 * S(t * 0.2); ctx.strokeStyle = '#ff5a3a'; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.arc(px, py, 22 + S(t * 0.15) * 2, 0, TAU); ctx.stroke();
-            if (!low()) { ctx.fillStyle = '#ffb03a'; for (let i = 0; i < 6; i++) { const a = t * 0.08 + i * TAU / 6; ctx.fillRect(px + C0(a) * 24 - 1, py + S(a) * 24 - 1 - ((t + i * 5) % 10) * 0.4, 3, 3); } }
+            ctx.save(); ctx.strokeStyle = '#7fe0ff'; ctx.lineWidth = 1.5; ctx.globalAlpha = Math.min(0.85, 0.3 + pb * 0.2);
+            partners.forEach(q => { ctx.beginPath(); ctx.arc(q.x, q.y, 12 + S(t * 0.2 + q.x) * 1.5 + Math.min(6, pb * 2), 0, TAU); ctx.stroke(); });
             ctx.restore();
         }
     }
@@ -293,27 +227,12 @@
         const W = PW(), H = PH(), t = C.frame;
         ctx.save(); ctx.textAlign = 'left'; ctx.lineJoin = 'round'; ctx.font = '8px "Press Start 2P", monospace';
         let y = 208; const pb = partnerBonus();
-        if (C.n > 0 && pb > 0) { ctx.globalAlpha = C.pbT > 0 ? 1 : 0.85; outlineText('PARTNERS +' + pb.toFixed(1) + (C.pbT > 0 ? ' UP!' : ''), 10, y, C.pbT > 0 ? '#fff' : '#7fe0ff', '#12000a', 3); y += 14; }
+        if (C.n > 0 && pb > 0) { ctx.globalAlpha = C.pbT > 0 ? 1 : 0.85; outlineText('PARTNERS +' + pb.toFixed(2) + (C.pbT > 0 ? ' UP!' : ''), 10, y, C.pbT > 0 ? '#fff' : '#7fe0ff', '#12000a', 3); y += 14; }
         ctx.globalAlpha = 0.95;
-        if (C.n > 0) PERKS.forEach(q => { const lv = C.perks[q.k]; if (lv > 0) { outlineText('> ' + q.n + (lv > 1 ? ' Lv' + lv : ''), 10, y, q.c, '#12000a', 3); y += 14; } });
-        if (C.n > 0) { ctx.globalAlpha = 0.6; outlineText('SIG. PODER: x' + ((Math.floor(C.n / PERK_EVERY) + 1) * PERK_EVERY), 10, y, '#cfd6e4', '#12000a', 3); }
-        if (C.lostT > 0) { ctx.globalAlpha = Math.min(1, C.lostT / 25); outlineText('PODERES PERDIDOS', 10, 208, '#ff6a6a', '#12000a', 3); }
-        // aviso central al conseguir un poder
-        if (C.perkT > 0) {
-            const k = C.perkT / 170, a = Math.min(1, C.perkT / 20) * Math.min(1, (1 - k) * 8), cy = H * 0.6;
-            ctx.globalAlpha = a; ctx.textAlign = 'center';
-            ctx.font = '9px "Press Start 2P", monospace'; outlineText('PODER DE COMBO', W / 2, cy, '#fff', '#12000a', 4);
-            ctx.font = '10px "Press Start 2P", monospace'; outlineText(C.perkName + (C.perkLv > 1 ? ' Lv' + C.perkLv : ''), W / 2, cy + 18, C.perkCol, '#12000a', 5);
-            ctx.font = '7px "Press Start 2P", monospace'; outlineText(C.perkDesc, W / 2, cy + 34, '#e8eef8', '#12000a', 3);
-        }
         ctx.restore();
     }
 
     // ---------------------------------------------------------------- ganchos v35 (no hace falta tocar nada más en juego.js)
-    // · Furia de combo: +25 % de daño por nivel (dividir la defensa de enemigos y jefes)
-    const furia = () => 1 + 0.25 * ((C.alive && C.n > 0) ? C.perks.furia : 0);
-    if (typeof window.enemyDefenseFactor === 'function') { const _e = window.enemyDefenseFactor; window.enemyDefenseFactor = function () { return _e.apply(this, arguments) / furia(); }; }
-    if (typeof window.bossDefenseFactor === 'function') { const _b = window.bossDefenseFactor; window.bossDefenseFactor = function () { return _b.apply(this, arguments) / furia(); }; }
     // · Al matar un mini jefe / jefe: combo x2 (solo si de verdad pasa a "dead"; el choque de poderes puede retrasar la muerte)
     if (typeof window.defeatBoss === 'function') {
         const _d = window.defeatBoss;
@@ -338,7 +257,7 @@
         watchBosses();                                       // v35: golpear al jefe mantiene el combo
         if (C.n > 0 && C.rainbow <= 0 && !fz && --C.t <= 0) endCombo();
         C.pop *= 0.84; C.flash *= 0.9; C.ms *= 0.9; C.slash *= 0.93;
-        if (C.wordT > 0) C.wordT--; if (C.breakT > 0) C.breakT--; if (C.endT > 0) C.endT--; if (C.rbBanner > 0) C.rbBanner--; if (C.perkT > 0) C.perkT--; if (C.lostT > 0) C.lostT--; if (C.pbT > 0) C.pbT--;
+        if (C.wordT > 0) C.wordT--; if (C.breakT > 0) C.breakT--; if (C.endT > 0) C.endT--; if (C.rbBanner > 0) C.rbBanner--; if (C.lostT > 0) C.lostT--; if (C.pbT > 0) C.pbT--;
         C.disp += (C.n - C.disp) * 0.35; if (Math.abs(C.n - C.disp) < 0.05) C.disp = C.n;
         if (C.rainbow > 0) { C.rainbow--; if (C.rainbow === 0) { C.wordT = 0; } }
         const ri = Math.max(0, C.ri), amp = C.n > 0 ? (0.3 + ri * 0.45) * (1 + C.pop * 2.2) : 0;
@@ -468,5 +387,5 @@
         if (on) { try { drawCombo(); drawPerks(); } catch (e) { console.warn('combo HUD:', e); } }
         return r;
     };
-    window.Combo = { state: C, kill, graze, startRainbow, reset, RANKS, partnerBonus, multiplyCombo, perks: PERKS, frozen, fodder };
+    window.Combo = { state: C, kill, graze, startRainbow, reset, RANKS, partnerBonus, multiplyCombo, frozen, fodder };
 })();

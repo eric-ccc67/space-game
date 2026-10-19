@@ -1,3 +1,11 @@
+# Cambios v37 — Sin poderes de combo, partners más justos y más sobrepoder
+
+- **Se eliminaron los poderes únicos de combo** (Imán estelar, Láser, Satélites y Furia) y todo su HUD. Quedó solo el bonus de daño a los partners.
+- **Bonus de partners**: `PARTNER_POWER_STEP` bajó de **0.5 a 0.10** por cada 10 combos, con tope `PARTNER_BONUS_MAX = 3.0` (se alcanza con combo x300; pon `Infinity` para quitar el tope) en `combo.js`.
+- **IA adaptativa con SOBREPODER** (`ia_adaptativa.js`): si tu fuerza pasa del tope, sube aún más la cantidad de enemigos a la vez (+4, tope 24) y su ritmo de aparición, y la defensa de enemigos y sobre todo de jefes (jefes: hasta +100 % por fuerza y +80 % extra por sobrepoder, antes +60 %). Todo en `CFG`.
+
+---
+
 # Cambios v36 — IA adaptativa (enemigos y jefes se adaptan a qué tan fuerte eres)
 
 - **`ia_adaptativa.js`** (nuevo, se carga después de `combo.js`): mide tu FUERZA con todo lo que tenga que ver con poderes y la convierte en una AMENAZA (0 a 1, sube rápido y baja despacio).
