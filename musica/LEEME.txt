@@ -11,10 +11,6 @@ OLEADAS DE ENEMIGOS Y MINI JEFES (nivel 1 a 7) - LA MISMA PISTA
 JEFES DE NIVEL (nivel 1 a 7)
   nivel1_jefe.mp3 ... nivel7_jefe.mp3
 
-MODO RETRO (portales de 8 bits) - UN SOLO ARCHIVO
-  retro.mp3
-  (si no existe, se mantiene la música de 8 bits generada por el juego)
-
 MENÚ DEL JUEGO - UN SOLO ARCHIVO
   menu.mp3
   (si no existe, se mantiene la música de ambiente generada por el juego)
