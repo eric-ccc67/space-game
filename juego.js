@@ -896,6 +896,10 @@ let levelPhase = 'wave1';
 let activeMiniBoss = null;
 let miniBossAnnounceTimer = 0;
 const MINIBOSS_ANNOUNCE_DURATION = 100;
+// v40: ADVERTENCIA previa: en los últimos segundos de la primera oleada aparece el cartel "se acerca un MINI JEFE".
+const MINIBOSS_WARN_FRAMES = 300;          // 5 s antes de que llegue
+// Cada mini jefe tiene nombre propio ÚNICO (MINIBOSS_NAMES, sale en su barra de vida) y un título (MINIBOSS_TITLES).
+const MINIBOSS_TITLES = [];
 // Nombre de "presentación" de cada mini jefe, uno por nivel/tema.
 const MINIBOSS_NAMES = [
     'Hada de los Pétalos Tempranos',   // Sakura
@@ -5436,6 +5440,27 @@ function gameLoop() {
         ctx.textAlign = 'left';
     }
 
+    // v40: ADVERTENCIA: en los últimos segundos de la primera oleada avisa de que se acerca el MINI JEFE
+    if (levelPhase === 'wave1' && !activeMiniBoss && currentMode !== 'clasico') {
+        const rem = waveDurFor() - waveTimer;
+        if (rem > 0 && rem <= MINIBOSS_WARN_FRAMES) {
+            const k = MINIBOSS_WARN_FRAMES - rem;
+            if (k % 100 === 0) { try { playSpecialAlertSound(); } catch (e) {} }
+            const a = Math.min(Math.min(1, k / 12), Math.min(1, rem / 15)), blink = (Math.floor(k / 9) % 2) ? 1 : 0.6;
+            const bh = 66, by = playAreaH * 0.24, fs = Math.max(14, Math.min(22, playAreaW * 0.04));
+            ctx.save();
+            ctx.globalAlpha = a * 0.6; ctx.fillStyle = '#7a0000'; ctx.fillRect(0, by, playAreaW, bh);
+            ctx.globalAlpha = a; ctx.fillStyle = '#ffcc33'; ctx.fillRect(0, by, playAreaW, 3); ctx.fillRect(0, by + bh - 3, playAreaW, 3);
+            ctx.textAlign = 'center'; ctx.shadowColor = '#ff2a2a'; ctx.shadowBlur = 14;
+            ctx.globalAlpha = a * blink; ctx.fillStyle = '#ff5050'; ctx.font = `${fs}px "Press Start 2P"`;
+            ctx.fillText('⚠ ¡ADVERTENCIA! ⚠', playAreaW / 2, by + 28);
+            ctx.shadowBlur = 0; ctx.globalAlpha = a; ctx.fillStyle = '#fff';
+            ctx.font = `${Math.max(18, Math.min(30, playAreaW * 0.055))}px "VT323"`;
+            ctx.fillText('SE ACERCA UN MINI JEFE', playAreaW / 2, by + 54);
+            ctx.restore(); ctx.textAlign = 'left';
+        }
+    }
+
     // Anuncio breve del MINI JEFE (nombre temático del nivel), similar al cartel
     // de nivel pero más corto, para que se distinga claramente del jefe final.
     if (miniBossAnnounceTimer > 0 && currentMode !== 'clasico') {
@@ -5457,6 +5482,9 @@ function gameLoop() {
         ctx.fillStyle = '#fff';
         ctx.font = `${Math.max(16, Math.min(28, playAreaW * 0.055))}px "VT323"`;
         ctx.fillText(MINIBOSS_NAMES[currentLevelIndex()], playAreaW / 2, playAreaH * 0.32 + 28);
+        ctx.fillStyle = accent; ctx.globalAlpha = alpha * 0.85;
+        ctx.font = `${Math.max(12, Math.min(20, playAreaW * 0.04))}px "VT323"`;
+        ctx.fillText(MINIBOSS_TITLES[currentLevelIndex()] || '', playAreaW / 2, playAreaH * 0.32 + 50);
         ctx.restore();
         ctx.textAlign = 'left';
     }
@@ -6847,12 +6875,17 @@ const Extras = (function () {
     'use strict';
 
     // ---------------------------------------------------------------- almacenamiento
-    const LS = { coins: 'sg_coins_v1', missions: 'sg_missions_v1', stats: 'sg_stats_v1', omega: 'sg_omega_v1' };
+    const LS = { coins: 'sg_coins_v1', missions: 'sg_missions_v1', stats: 'sg_stats_v1', omega: 'sg_omega_v1', dball: 'sg_dballs_v1' };
     const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
     const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
     const fmt = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
     let omega = lsGet(LS.omega, false) === true;      // v40: Omega se desbloquea al superar un nivel sin que te golpeen
+    // v40: ESFERAS DEL DRAGÓN. La de 4 estrellas es la que aparece en el menú (desbloquea a Goku, ver goku.js).
+    // Las otras 6 se consiguen derrotando al jefe de cada zona (niveles 1-6) SIN recibir ningún golpe en todo el nivel.
+    const DBALL_STAR_BY_LEVEL = [1, 2, 3, 5, 6, 7];
+    let dballs = lsGet(LS.dball, null);
+    if (!Array.isArray(dballs) || dballs.length !== 7) dballs = [0, 0, 0, 0, 0, 0, 0];
     let coins = lsGet(LS.coins, null);
     if (!Array.isArray(coins) || coins.length !== 7) coins = [0, 0, 0, 0, 0, 0, 0];
     let stats = Object.assign({ stars: 0, streak: 0, lastDay: '', daysDone: 0, bonusLife: false }, lsGet(LS.stats, {}));
@@ -7037,6 +7070,27 @@ const Extras = (function () {
     }
     // v40: OMEGA. Se desbloquea al vencer al jefe de un nivel sin haber recibido NINGÚN golpe en todo el nivel
     // (vida perdida, blindaje del Tanque roto o escudo que absorbe un impacto cuentan como golpe).
+    const dballHave = i => { if (i !== 3) return !!dballs[i]; try { return Goku.isUnlocked(); } catch (e) { return false; } };
+    function dballCount() { let n = 0; for (let i = 0; i < 7; i++) if (dballHave(i)) n++; return n; }
+    function renderDBalls() {
+        const el = document.getElementById('dballRow'); if (!el) return;
+        let h = `<span class="co-label">ESFERAS DEL DRAGÓN ${dballCount()}/7</span>`;
+        for (let i = 0; i < 7; i++) {
+            const lv = DBALL_STAR_BY_LEVEL.indexOf(i + 1);
+            const tip = i === 3 ? 'Esfera de 4 estrellas: aparece de vez en cuando en el menú' : 'Esfera de ' + (i + 1) + (i === 0 ? ' estrella' : ' estrellas') + ': derrota al jefe del nivel ' + (lv + 1) + ' sin recibir golpes';
+            h += `<span class="db ${dballHave(i) ? 'on' : ''}" title="${tip}">${'★'.repeat(i + 1)}</span>`;
+        }
+        if (dballCount() === 7) h += '<span class="co-unlock">★ ¡LAS 7 ESFERAS!</span>';
+        el.innerHTML = h;
+    }
+    function giveDBall(levelIdx) {
+        if (inPractice()) return;
+        const star = DBALL_STAR_BY_LEVEL[levelIdx]; if (!star || dballs[star - 1]) return;
+        dballs[star - 1] = 1; lsSet(LS.dball, dballs); renderDBalls();
+        const n = dballCount();
+        if (n === 7) toast('¡LAS 7 ESFERAS DEL DRAGÓN!', 'Reuniste todas las esferas', '', '#ffb020');
+        else toast('¡ESFERA DE ' + star + (star === 1 ? ' ESTRELLA!' : ' ESTRELLAS!'), n + '/7 · jefe derrotado sin recibir golpes', '', '#ffb020');
+    }
     function unlockOmega() {
         if (omega || inPractice()) return;
         omega = true; lsSet(LS.omega, true); refreshShipUI();
@@ -7062,7 +7116,7 @@ const Extras = (function () {
                 b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake');
             }
         }, true);
-        refreshShipUI(); renderMissions();
+        refreshShipUI(); renderMissions(); renderDBalls(); setInterval(renderDBalls, 1500);
     }
 
     // ---------------------------------------------------------------- API usada por game.js
@@ -7128,7 +7182,7 @@ const Extras = (function () {
         omegaUnlocked() { return omega; },
         onKill() { runStat('kills'); bump('kill', 1); },
         onMiniBoss() { runStat('minibosses'); bump('mini', 1); },
-        onBossDefeated() { runStat('bosses'); bump('boss', 1); if (!levelHit) bump('nohit', 1); if (!levelTouched) unlockOmega(); },
+        onBossDefeated() { runStat('bosses'); bump('boss', 1); if (!levelHit) bump('nohit', 1); if (!levelTouched) { unlockOmega(); try { giveDBall(currentLevelIndex()); } catch (e) {} } },
         onBomb() { runStat('bombs'); bump('bomb', 1); },
         onPowerUp() { runStat('powerups'); bump('power', 1); },
         onGraze() { runStat('graze'); bump('graze', 1); },
@@ -7139,8 +7193,9 @@ const Extras = (function () {
         // utilidades para probar
         dev: {
             coins(n) { for (let i = 0; i < 7; i++) coins[i] = i < n ? 1 : 0; save(); renderCoins(); refreshShipUI(); },
+            dballs(n) { for (let i = 0; i < 7; i++) dballs[i] = i < n ? 1 : 0; lsSet(LS.dball, dballs); renderDBalls(); return dballCount(); },
             omega(v) { omega = v !== false; lsSet(LS.omega, omega); refreshShipUI(); return omega; },
-            reset() { omega = false; lsSet(LS.omega, false); coins = [0, 0, 0, 0, 0, 0, 0]; stats = { stars: 0, streak: 0, lastDay: '', daysDone: 0, bonusLife: false }; daily = null; ensureToday(); save(); renderMissions(); refreshShipUI(); },
+            reset() { omega = false; lsSet(LS.omega, false); dballs = [0, 0, 0, 0, 0, 0, 0]; lsSet(LS.dball, dballs); coins = [0, 0, 0, 0, 0, 0, 0]; stats = { stars: 0, streak: 0, lastDay: '', daysDone: 0, bonusLife: false }; daily = null; ensureToday(); save(); renderMissions(); refreshShipUI(); },
             missions() { return daily; }
         }
     };
@@ -9649,8 +9704,10 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
 };
 
 // ----------------------------------------------------------- nombres (sin hadas)
-[ 'Tengu del Viento', 'Golem de Cristal', 'Pez Abisal', 'Búho Guardián', 'Golem de Pergaminos', 'Reloj Centinela', 'Ángel Caído' ]
+[ 'Kaze', 'Cristalio', 'Leviatín', 'Noctua', 'Códex', 'Tic-Tac', 'Lacrimus' ]
     .forEach((n, i) => { MINIBOSS_NAMES[i] = n; });
+[ 'Tengu del Viento', 'Golem de Cristal', 'Pez Abisal', 'Búho Guardián', 'Escriba de Pergaminos', 'Reloj Centinela', 'Ángel Caído' ]
+    .forEach((n, i) => { MINIBOSS_TITLES[i] = n; });
 [ 'ATAQUE DE NUEVE COLAS', 'TORMENTA DEL REY YETI', 'FURIA DEL KRAKEN', 'ATAQUE DE SEDA MORTAL', 'APOCALIPSIS ESCRITO', 'SOBRECARGA FINAL' ]
     .forEach((n, i) => { BOSS_SPECIAL_NAMES[i] = n; });             // el nivel 7 (ojo) conserva 'LÁGRIMA CARMESÍ'
 [ 'VENDAVAL TENGU', 'PUÑO DE CRISTAL', 'MORDISCO ABISAL', 'GRITO NOCTURNO', 'TINTA VIVIENTE', 'CAMPANADA FINAL', 'JUICIO CARMESÍ' ]
