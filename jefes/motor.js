@@ -160,6 +160,17 @@
         if (!this.ub) return _bDraw.call(this);
         try { drawUB(this); } catch (e) {}
     };
+    // v40: cuerpo visible de la bala (lo usa bulletHit() de juego.js): elipse del tamaño del sprite dibujado, girada como el sprite.
+    const _bHit = Bullet.prototype.hitShape;
+    Bullet.prototype.hitShape = function () {
+        if (!this.ub) return _bHit ? _bHit.call(this) : null;
+        if (this.width < 0) return { never: true };              // alma azul/naranja que ahora no te daña
+        const s = SPR[this.ub]; if (!s) return null;
+        const c = s.f[0], w = c.width * this.sc, h = c.height * this.sc;
+        let rot = 0;
+        if (this.rotm === 'vel') rot = Math.atan2(this.vy, this.vx) + this.roff; else if (this.rotm === 'spin') rot = this.age * this.spin + this.a0; else if (this.rotm === 'fix') rot = this.a0;
+        return { rx: w / 2, ry: h / 2, rot };
+    };
     function drawUB(b) {
         const s = SPR[b.ub]; if (!s || b.dead) return;
         const fr = b.anim ? Math.floor(b.age / b.anim) % s.f.length : 0, c = s.f[fr];
@@ -193,7 +204,7 @@
     function hurtP() {
         if (Date.now() <= invulnerableUntil) return false;
         if (typeof bombEffect !== 'undefined' && bombEffect.active) return false;
-        if (powerUps.shield > Date.now()) { createExplosion(pcx(), pcy(), '#0ff', 8, true); return false; }
+        if (powerUps.shield > Date.now()) { createExplosion(pcx(), pcy(), '#0ff', 8, true); try { Extras.onHit(); } catch (e) {} return false; }
         createExplosion(pcx(), pcy(), player.color, 30);
         lives -= (typeof shipHitDamage === 'function' ? shipHitDamage() : 1);
         invulnerableUntil = Date.now() + (difficultySettings[currentDiff].invulMs || 2000);
@@ -574,9 +585,16 @@
     //  API PÚBLICA
     // ============================================================================================
     function register(levelIdx, def) { DEFS[levelIdx] = def; }
+    // v40: añade ataques nuevos a un jefe ya registrado (jefes/dinamicos.js)
+    function addAttacks(levelIdx, list) {
+        const d = DEFS[levelIdx]; if (!d) return false;
+        list.forEach(a => { if (!d.attacks.some(x => x.id === a.id)) d.attacks.push(a); });
+        return true;
+    }
     function names(levelIdx, specialName) { if (typeof BOSS_SPECIAL_NAMES !== 'undefined' && specialName) BOSS_SPECIAL_NAMES[levelIdx] = specialName; }
     window.JefesUnicos = {
-        register, names, def, spr, P, SPR, shot, fire, kill, beam, zone, rect, wind, hazard, ink, tint, say, sfx, hurt: hurtP, nudge,
+        register, addAttacks, names, def, spr, P, SPR, shot, fire, kill, beam, zone, rect, wind, hazard, ink, tint, say, sfx, hurt: hurtP, nudge,
+        mkH, grazeH, addHz,
         rnd, rr, pick, seed, Mv, clamp, lerp, letterSpr, glowSpr, segDist, TAU, PW, PH, pcx, pcy, lowFx, WIND,
         hz: () => HZ,
         dev: {
