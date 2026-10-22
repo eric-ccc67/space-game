@@ -810,9 +810,15 @@ function enemyDefenseFactor(e) {
     if (relief) { const k = Math.max(0, Math.min(1, (currentLevelIndex() - (LATE_LEVEL_FROM - 2)) / 2)); if (k > 0) f = Math.max(1, f * (1 + (relief - 1) * k)); }   // v33: niveles 5-7 más llevaderos (rampa en los niveles 3-4)
     return f;   // +18 % de vida en Lunático
 }
+// v40: en LUNÁTICO los dos últimos jefes (Ojo Carmesí, nivel 7, y el Invasor) son más duros: sus balas y ataques NO se pueden
+// romper (ni con bombas, ni con Omega, ni con rayos) y tienen algo más de defensa para poder ver sus ataques.
+const FINAL_BOSS_DEF_MULT = 1.3;
+function bossBulletsImmune() {
+    try { return currentDiff === 'lunatico' && currentMode !== 'clasico' && !!activeBoss && activeBoss.state !== 'dead' && (activeBoss.levelIdx === 6 || activeBoss.levelIdx === 7); } catch (e) { return false; }
+}
 function bossDefenseFactor() {
     if (currentMode === 'clasico') return 1;
-    return (1 + levelDefenseStep() * DEF_PER_LEVEL_BOSS) * (1 + (powerLevel - 1) * DEF_PER_ATTACK_BOSS) * (difficultySettings[currentDiff].bossDef || 1);
+    return (bossBulletsImmune() ? FINAL_BOSS_DEF_MULT : 1) * (1 + levelDefenseStep() * DEF_PER_LEVEL_BOSS) * (1 + (powerLevel - 1) * DEF_PER_ATTACK_BOSS) * (difficultySettings[currentDiff].bossDef || 1);
 }
 // Multiplicador de la probabilidad de que caigan power-ups (Item): baja con el nivel y con tu poder.
 function powerupDropMult() {
@@ -2368,6 +2374,9 @@ class Enemy {
         if (type === 1) { this.width = 78; this.height = 78; this.hp = 3; this.vy = 1.1 * mult * dm; this.color = '#f55'; } 
         if (type === 2) { this.width = 96; this.height = 96; this.hp = 7; this.vy = 0.65 * mult * dm; this.color = '#a52'; } 
         if (type === 3) { this.width = 60; this.height = 60; this.hp = 1; this.vy = 2.4 * mult * dm; this.color = '#ff0'; } 
+        // v40: arreglo — con la entrada 'sideL' el punto de partida se calculaba ANTES de tener ancho (NaN) y el enemigo
+        // era invisible durante toda su entrada; ahora se calcula con el ancho ya asignado.
+        if (this.entryPattern === 'sideL') this.entryFromX = -this.width - 20;
         this.vx = (Math.random() - 0.5) * 1.5; 
 
         // Enemigos "menores" que bajan durante un mini jefe: mueren de un golpe
@@ -4037,7 +4046,11 @@ function defeatMiniBoss() {
     if (!activeMiniBoss || activeMiniBoss.state === 'dead') return;
     activeMiniBoss.state = 'dead';
     Extras.onMiniBoss();
-    try { Extras.dropCoin(activeMiniBoss.x + activeMiniBoss.width / 2, activeMiniBoss.y + activeMiniBoss.height / 2); } catch (e) { console.warn('dropCoin', e); }   // v39: moneda para Reimu / Marisa
+    // v39: moneda para Reimu / Marisa. v40: como en los New Super Mario Bros, el juego se congela un instante al caer el mini jefe
+    // y después la moneda sale despedida hacia arriba antes de ir hacia tu nave.
+    const coinX = activeMiniBoss.x + activeMiniBoss.width / 2, coinY = activeMiniBoss.y + activeMiniBoss.height / 2;
+    window.__hitStop = 24;
+    setTimeout(() => { if (!isPlaying) return; try { Extras.dropCoin(coinX, coinY, true); } catch (e) { console.warn('dropCoin', e); } }, 24 * 17 + 120);
     createExplosion(activeMiniBoss.x + activeMiniBoss.width/2, activeMiniBoss.y + activeMiniBoss.height/2, '#fa0', 200);
     screenShake = 35; score += 1500;
     for (let k = 0; k < Math.max(2, Math.round(6 * powerupDropMult())); k++) items.push(new Item(activeMiniBoss.x + Math.random()*activeMiniBoss.width, activeMiniBoss.y + Math.random()*activeMiniBoss.height));
@@ -4104,6 +4117,7 @@ function nextWave() {
         enemyBullets = [];
         if (window.WaveAttacks) WaveAttacks.reset();
         formationCooldown = 220;
+        if (window.SpawnDirector) SpawnDirector.reset();
         miniBossMinionTimer = 0;
 
         // Reinicia las estadísticas para el nuevo nivel que empieza
@@ -4704,7 +4718,7 @@ function initGame() {
     runStats = {};
     score = 0; currentWave = 1; waveTimer = 0; activeBoss = null; isEndless = false;
     activeMiniBoss = null; levelPhase = 'wave1'; miniBossAnnounceTimer = 0;
-    bossIntroTimer = 0; bossBgPlanet = null; formationCooldown = 220; miniBossMinionTimer = 0;
+    bossIntroTimer = 0; bossBgPlanet = null; formationCooldown = 220; miniBossMinionTimer = 0; if (window.SpawnDirector) SpawnDirector.reset();
     enemies = []; bullets = []; particles = []; enemyBullets = []; items = [];
     if (window.WaveAttacks) WaveAttacks.reset();
     pointItems = []; dopamineParticles = []; partners = [];
@@ -4777,6 +4791,42 @@ function initGame() {
     gameLoop();
 }
 
+// ==========================================================================================
+//  v40 · HITBOX DE LAS BALAS ENEMIGAS COHERENTE CON LO QUE SE VE
+//  Antes: el punto verde (radio 2.2) se comparaba con un radio de ~2-3 px aunque la bala se dibujara de ~27 px, así que
+//  las balas "atravesaban" el punto verde sin hacer daño. Ahora cada bala expone su cuerpo visible (Bullet.hitShape:
+//  elipse con semiejes rx/ry y rotación) y el golpe ocurre cuando el punto verde toca ese cuerpo.
+//    HITBOX.cuerpo  = qué fracción del tamaño visible cuenta como cuerpo (0.5 = la mitad central; 1 = sprite completo)
+//    HITBOX.jugador = radio del punto verde del jugador
+//    HITBOX.debug   = true  -> dibuja la hitbox real de cada bala (rojo; amarillo = regla antigua) para comprobarla en pantalla
+//  Consola:  HITBOX.cuerpo = 0.6  (más exigente)  ·  HITBOX.debug = true
+// ==========================================================================================
+const HITBOX = window.HITBOX = { cuerpo: 0.5, jugador: 2.2, maxSemi: 24, debug: false };
+function bulletHit(b, cx, cy) {
+    const pr = HITBOX.jugador;
+    const hs = (typeof b.hitShape === 'function') ? b.hitShape() : null;
+    if (!hs) {                                   // balas especiales sin sprite conocido (Pac-Man, eventos...): regla de siempre
+        const dx = b.x - cx, dy = b.y - cy;
+        return Math.sqrt(dx * dx + dy * dy) < (pr + b.width * 0.4);
+    }
+    if (hs.never) return false;                  // balas "azules/naranjas" cuando no te dañan
+    const k = HITBOX.cuerpo, rx = Math.min(HITBOX.maxSemi, Math.max(2, hs.rx * k)) + pr, ry = Math.min(HITBOX.maxSemi, Math.max(2, hs.ry * k)) + pr;
+    const dx = cx - b.x, dy = cy - b.y, c = Math.cos(hs.rot || 0), s = Math.sin(hs.rot || 0);
+    const lx = dx * c + dy * s, ly = -dx * s + dy * c;
+    return (lx * lx) / (rx * rx) + (ly * ly) / (ry * ry) < 1;
+}
+// HITBOX.debug: dibuja la hitbox real de la bala (rojo) y el punto de impacto del jugador (verde)
+function drawBulletBox(b) {
+    try {
+        const hs = (typeof b.hitShape === 'function') ? b.hitShape() : null; ctx.save(); ctx.lineWidth = 1;
+        if (hs && !hs.never) {
+            const k = HITBOX.cuerpo; ctx.strokeStyle = 'rgba(255,50,50,0.95)'; ctx.beginPath();
+            ctx.ellipse(b.x, b.y, Math.min(HITBOX.maxSemi, Math.max(2, hs.rx * k)), Math.min(HITBOX.maxSemi, Math.max(2, hs.ry * k)), hs.rot || 0, 0, Math.PI * 2); ctx.stroke();
+        } else if (!hs) { ctx.strokeStyle = 'rgba(255,200,50,0.95)'; ctx.beginPath(); ctx.arc(b.x, b.y, Math.max(1, b.width * 0.4), 0, Math.PI * 2); ctx.stroke(); }
+        ctx.restore();
+    } catch (e) {}
+}
+
 function gameLoop() {
     if (!isPlaying) return;
     if (window.GamePause && window.GamePause.on) { requestAnimationFrame(gameLoop); return; }   // pausa
@@ -4788,6 +4838,7 @@ function gameLoop() {
     if (continueState) { drawContinue(); requestAnimationFrame(gameLoop); return; }               // ¿continuar?
     
     if (Extras.takeover()) { requestAnimationFrame(gameLoop); return; }
+    if (window.__hitStop > 0) { window.__hitStop--; requestAnimationFrame(gameLoop); return; }   // v40: pausa corta al caer el mini jefe (antes de que salga la moneda)
     
     updateMusicState();
     
@@ -4923,7 +4974,7 @@ function gameLoop() {
             const lateL = lunaticLate(), maxEn = dsp.maxEnemies + lateL * 2;      // Lunático nivel 5-7: +2 enemigos máx. por nivel
             const maxEnNow = evActive ? Math.max(3, Math.round(maxEn * 0.75)) : maxEn;
             const normalCount = evActive ? enemies.filter(e => !e.fromEvent).length : enemies.length;
-            if (normalCount < maxEnNow && Math.random() < dsp.enemySpawnRate * (1 + 0.25 * lateL) * evDens) {
+            if (normalCount < maxEnNow && Math.random() < dsp.enemySpawnRate * (1 + 0.25 * lateL) * evDens * ((window.SpawnDirector && SpawnDirector.loneK) ? SpawnDirector.loneK() : 1)) {
                 let r = Math.random();
                 let type = r < 0.16 + 0.04 * lateL ? 2 : (r < 0.28 + 0.09 * lateL ? 3 : 1);   // más resistentes (2) y más rápidos (3)
                 let w = type === 2 ? 96 : (type === 3 ? 60 : 78);
@@ -4939,11 +4990,12 @@ function gameLoop() {
                     formationCooldown = 40;  // el grupo anterior aún está entrando: no se mezclan filas
                 } else if (normalCount <= maxEnNow - 2) {
                     spawnFormation(currentLevelIndex());
-                    formationCooldown = Math.round((330 + Math.random() * 180) / (dsp.enemySpeedMult || 1) * (1 - 0.13 * lateL));
+                    formationCooldown = Math.round((330 + Math.random() * 180) / (dsp.enemySpeedMult || 1) * (1 - 0.13 * lateL) * ((window.SpawnDirector && SpawnDirector.formK) ? SpawnDirector.formK() : 1));   // v40: filas más seguidas
                 } else {
                     formationCooldown = 60; // pantalla llena: espera un momento y reintenta
                 }
             }
+            if (window.SpawnDirector) SpawnDirector.tick(normalCount, maxEnNow, evDens, lateL);   // v40: suelo de enemigos + oleadas temáticas (spawn_director.js)
 
             for (let i = enemies.length - 1; i >= 0; i--) {
                 let e = enemies[i];
@@ -5254,10 +5306,11 @@ function gameLoop() {
         b.update();
         if (!isFinite(b.x) || !isFinite(b.y)) { enemyBullets.splice(i, 1); continue; }   // bala corrupta: se descarta
         b.draw();
+        if (HITBOX.debug) drawBulletBox(b);
 
         if (bombEffect.active) {
             let dx = b.x - bombEffect.x; let dy = b.y - bombEffect.y;
-            if (Math.sqrt(dx*dx + dy*dy) < bombEffect.radius) { enemyBullets.splice(i, 1); continue; }
+            if (Math.sqrt(dx*dx + dy*dy) < bombEffect.radius && !bossBulletsImmune()) { enemyBullets.splice(i, 1); continue; }
         }
 
         if (Date.now() > invulnerableUntil) {
@@ -5267,17 +5320,13 @@ function gameLoop() {
             } else {
                 let cx = player.x + player.width / 2;
                 let cy = player.y + player.height / 2;
-                let dx = b.x - cx;
-                let dy = b.y - cy;
-                let dist = Math.sqrt(dx * dx + dy * dy);
-                let playerRadius = 2.2; // hitbox real, más pequeña que el punto visible: solo el núcleo cuenta
-                let bulletRadius = b.width * 0.4;
-                hit = dist < (playerRadius + bulletRadius);
+                // v40: la colisión usa el CUERPO VISIBLE de la bala (ver bulletHit / HITBOX): si el punto verde toca el cuerpo, duele.
+                hit = bulletHit(b, cx, cy);
             }
 
             if (hit) {
                 if (powerUps.shield > Date.now()) {
-                    createExplosion(b.x, b.y, '#0ff', 5, true); enemyBullets.splice(i, 1);
+                    createExplosion(b.x, b.y, '#0ff', 5, true); enemyBullets.splice(i, 1); Extras.onHit();
                 } else {
                     createExplosion(player.x + player.width/2, player.y + player.height/2, player.color, 30);
                     lives -= shipHitDamage(); invulnerableUntil = Date.now() + (difficultySettings[currentDiff].invulMs || 2000);
@@ -6798,11 +6847,12 @@ const Extras = (function () {
     'use strict';
 
     // ---------------------------------------------------------------- almacenamiento
-    const LS = { coins: 'sg_coins_v1', missions: 'sg_missions_v1', stats: 'sg_stats_v1' };
+    const LS = { coins: 'sg_coins_v1', missions: 'sg_missions_v1', stats: 'sg_stats_v1', omega: 'sg_omega_v1' };
     const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
     const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
     const fmt = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 
+    let omega = lsGet(LS.omega, false) === true;      // v40: Omega se desbloquea al superar un nivel sin que te golpeen
     let coins = lsGet(LS.coins, null);
     if (!Array.isArray(coins) || coins.length !== 7) coins = [0, 0, 0, 0, 0, 0, 0];
     let stats = Object.assign({ stars: 0, streak: 0, lastDay: '', daysDone: 0, bonusLife: false }, lsGet(LS.stats, {}));
@@ -6815,6 +6865,7 @@ const Extras = (function () {
     const COIN_REIMU = 3, COIN_MARISA = 7;
     const reimuUnlocked = () => coinCount() >= COIN_REIMU;
     const marisaUnlocked = () => coinCount() >= COIN_MARISA;
+    const omegaUnlocked = () => omega;
     const SHIP_NAMES = { 1: 'Tanque', 2: 'Sniper', 3: 'Ligera', 4: 'Omega', 5: 'Reimu', 6: 'Marisa', 7: 'Goku' };
     const REWARD = [40, 80, 150];
     const TIER_NAMES = ['FÁCIL', 'MEDIA', 'DIFÍCIL'];
@@ -6859,7 +6910,7 @@ const Extras = (function () {
             const def = pool.find(p => !used.has(p.id) && (p.minTier || 0) <= t);
             used.add(def.id);
             const m = { id: def.id, tier: t, target: def.t[t] * (def.mult || 1), progress: 0, done: false };
-            if (def.id === 'ship') m.ship = 1 + Math.floor(rnd() * (marisaUnlocked() ? 6 : (reimuUnlocked() ? 5 : 4)));
+            if (def.id === 'ship') { const avail = [1, 2, 3]; if (omegaUnlocked()) avail.push(4); if (reimuUnlocked()) avail.push(5); if (marisaUnlocked()) avail.push(6); m.ship = avail[Math.floor(rnd() * avail.length)]; }
             list.push(m);
         });
         list.sort((a, b) => a.tier - b.tier);
@@ -6943,7 +6994,7 @@ const Extras = (function () {
         if (t.age >= t.life) toasts.shift();
     }
 
-    let runActive = false, levelHit = false, lastLives = 0, timeAcc = 0, saveAcc = 0;
+    let runActive = false, levelHit = false, levelTouched = false, lastArmor = true, lastLives = 0, timeAcc = 0, saveAcc = 0;
 
     const busy = () => false;
 
@@ -6974,14 +7025,22 @@ const Extras = (function () {
         el.innerHTML = h;
     }
     function refreshShipUI() {
-        const set = (n, un, name, desc, need) => {
+        const set = (n, un, name, desc, need, lockTxt) => {
             const b = document.querySelector('.ship-btn[data-ship="' + n + '"]'); if (!b) return;
             b.classList.toggle('locked', !un);
             b.querySelector('.ship-name').textContent = un ? n + '. ' + name : n + '. ???';
-            b.querySelector('.ship-desc').textContent = un ? desc : `(${coinCount()}/${need} monedas de mini jefe)`;
+            b.querySelector('.ship-desc').textContent = un ? desc : (lockTxt || `(${coinCount()}/${need} monedas de mini jefe)`);
         };
+        set(4, omegaUnlocked(), 'Omega', '(Plasma: borra balas)', 0, '(Pasa un nivel sin que te golpeen)');
         set(5, reimuUnlocked(), 'Reimu', '(Amuletos · Shift: agujas)', COIN_REIMU);
         set(6, marisaUnlocked(), 'Marisa', '(Estrellas · Láser · Spark)', COIN_MARISA);
+    }
+    // v40: OMEGA. Se desbloquea al vencer al jefe de un nivel sin haber recibido NINGÚN golpe en todo el nivel
+    // (vida perdida, blindaje del Tanque roto o escudo que absorbe un impacto cuentan como golpe).
+    function unlockOmega() {
+        if (omega || inPractice()) return;
+        omega = true; lsSet(LS.omega, true); refreshShipUI();
+        toast('¡OMEGA DESBLOQUEADA!', 'Nivel superado sin golpes · ya puedes elegirla en el hangar', '', '#ff9a3a');
     }
     function addCoin() {
         const i = coins.indexOf(0); if (i < 0) return;
@@ -6998,7 +7057,7 @@ const Extras = (function () {
         if (sel) sel.addEventListener('click', e => {
             const b = e.target.closest ? e.target.closest('.ship-btn') : null;
             const sh = b ? b.getAttribute('data-ship') : null;
-            if (b && ((sh === '5' && !reimuUnlocked()) || (sh === '6' && !marisaUnlocked()))) {
+            if (b && ((sh === '4' && !omegaUnlocked()) || (sh === '5' && !reimuUnlocked()) || (sh === '6' && !marisaUnlocked()))) {
                 e.stopPropagation(); e.preventDefault();
                 b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake');
             }
@@ -7012,8 +7071,9 @@ const Extras = (function () {
         if (gameStartTimer <= 0 && levelTransitionTimer <= 0 && !levelCompleteActive) {
             if (++timeAcc >= 60) { timeAcc = 0; bump('time', 1); }
         }
-        if (lives < lastLives) levelHit = true;
+        if (lives < lastLives) { levelHit = true; levelTouched = true; }
         lastLives = lives;
+        try { if (player && player.type === 1) { if (lastArmor && player.armorReady === false) levelTouched = true; lastArmor = player.armorReady !== false; } } catch (e) {}   // blindaje del Tanque roto = golpe
         setMax('score', score); setMax('shipScore', score);
         setMax('level', Math.min(currentWave, 7)); setMax('hardLevel', Math.min(currentWave, 7));
         setMax('attack', powerLevel);
@@ -7034,7 +7094,7 @@ const Extras = (function () {
         onRunStart() {
             try { Bonus.newRun(); } catch (e) {}
             try { Shop.applyRun(); } catch (e) {}
-            ensureToday(); runActive = true; levelHit = false; lastLives = lives; timeAcc = 0; toasts.length = 0;
+            ensureToday(); runActive = true; levelHit = false; levelTouched = false; lastArmor = true; lastLives = lives; timeAcc = 0; toasts.length = 0;
             if (stats.bonusLife) {
                 stats.bonusLife = false; lives = Math.min(MAX_LIVES, lives + 1); lastLives = lives; save();
                 toast('BONO DIARIO', '+1 vida inicial por completar todo ayer', '', '#ffd84a');
@@ -7044,10 +7104,18 @@ const Extras = (function () {
         coinCount() { return coinCount(); },   // v16: monedas conseguidas (0-7), para el perfil
         // v39: el mini jefe suelta UNA moneda (objeto que vuela hacia tu nave). Si ya tienes las 7, no suelta más.
         // En el Modo Práctica no se gana progreso.
-        dropCoin(x, y) {
+        dropCoin(x, y, pop) {
             if (inPractice() || coinCount() >= 7) return null;
             const pt = new PointItem(x - 11, y - 11, 'coin');
             pt.magnet = true; pt.vy = 1.4; pt.coinPending = true;
+            if (pop) {                                  // salto de moneda: sube, se frena, cae un momento y entonces la atrae tu nave
+                pt.magnet = false; pt.vy = -7.5; pt.popT = 0;
+                pt.update = function () {
+                    this.popT++; this.vy += 0.42; this.y += this.vy;
+                    if (this.popT >= 34) { this.magnet = true; this.vy = 1.4; this.update = PointItem.prototype.update; }
+                };
+                try { playLevelUpSound(); } catch (e) {}
+            }
             pointItems.push(pt);
             // Red de seguridad: si por lo que sea no llegas a recogerla (cambio de nivel, muerte...), se te acredita igual.
             setTimeout(() => { if (pt.coinPending) { pt.coinPending = false; const i = pointItems.indexOf(pt); if (i >= 0) pointItems.splice(i, 1); addCoin(); } }, 6000);
@@ -7055,10 +7123,12 @@ const Extras = (function () {
         },
         collectCoin(pt) { if (pt && pt.coinPending === false) return; if (pt) pt.coinPending = false; addCoin(); },
         coinsNeeded() { return { reimu: COIN_REIMU, marisa: COIN_MARISA }; },
-        onLevelStart() { levelHit = false; },
+        onLevelStart() { levelHit = false; levelTouched = false; lastArmor = true; },
+        onHit() { levelTouched = true; },          // v40: un golpe que no quita vida (escudo) también cuenta para Omega
+        omegaUnlocked() { return omega; },
         onKill() { runStat('kills'); bump('kill', 1); },
         onMiniBoss() { runStat('minibosses'); bump('mini', 1); },
-        onBossDefeated() { runStat('bosses'); bump('boss', 1); if (!levelHit) bump('nohit', 1); },
+        onBossDefeated() { runStat('bosses'); bump('boss', 1); if (!levelHit) bump('nohit', 1); if (!levelTouched) unlockOmega(); },
         onBomb() { runStat('bombs'); bump('bomb', 1); },
         onPowerUp() { runStat('powerups'); bump('power', 1); },
         onGraze() { runStat('graze'); bump('graze', 1); },
@@ -7069,7 +7139,8 @@ const Extras = (function () {
         // utilidades para probar
         dev: {
             coins(n) { for (let i = 0; i < 7; i++) coins[i] = i < n ? 1 : 0; save(); renderCoins(); refreshShipUI(); },
-            reset() { coins = [0, 0, 0, 0, 0, 0, 0]; stats = { stars: 0, streak: 0, lastDay: '', daysDone: 0, bonusLife: false }; daily = null; ensureToday(); save(); renderMissions(); refreshShipUI(); },
+            omega(v) { omega = v !== false; lsSet(LS.omega, omega); refreshShipUI(); return omega; },
+            reset() { omega = false; lsSet(LS.omega, false); coins = [0, 0, 0, 0, 0, 0, 0]; stats = { stars: 0, streak: 0, lastDay: '', daysDone: 0, bonusLife: false }; daily = null; ensureToday(); save(); renderMissions(); refreshShipUI(); },
             missions() { return daily; }
         }
     };
@@ -9705,7 +9776,7 @@ MiniBoss.prototype.runSpecialAttack = function (speed, cx, cy, ang) {
 
     function hurtPlayer() {
         if (Date.now() <= invulnerableUntil) return;
-        if (shield()) { createExplosion(pcx(), pcy(), '#0ff', 8, true); return; }
+        if (shield()) { createExplosion(pcx(), pcy(), '#0ff', 8, true); try { Extras.onHit(); } catch (e) {} return; }
         createExplosion(pcx(), pcy(), player.color, 30);
         lives--; invulnerableUntil = Date.now() + (difficultySettings[currentDiff].invulMs || 2000);
         powerLevel = Math.max(1, Math.floor(powerLevel / 2)); enemiesDefeatedForPower = 0;
@@ -11656,6 +11727,15 @@ Bullet.prototype.draw = function () {
         ctx.fillStyle = '#ffffff'; ctx.fillRect(x + Math.floor(w / 4), y + (this.isSuper ? 2 : 0), Math.max(2, Math.round(w / 2)), h - (this.isSuper ? 4 : 2));
     } catch (e) { return _bDraw.call(this); }
 };
+// v40: cuerpo visible de las balas ENEMIGAS dibujadas con estos sprites (semiejes en px de pantalla). Lo usa bulletHit().
+// Si la bala no se dibuja con estos sprites (modo clásico, balas especiales), devuelve null y vale la regla antigua.
+Bullet.prototype.hitShape = function () {
+    if (!this.isEnemy || this.inv || this.ub || !on() || currentMode === 'clasico') return null;
+    if (this.shape === 'spike') return { rx: 4.5 * EB, ry: 2.5 * EB, rot: Math.atan2(this.vy, this.vx) };   // 9x5 alargada en su rumbo
+    if (this.shape === 'drop') return { rx: 2.5 * EB, ry: 3.5 * EB, rot: 0 };                                   // 5x7 sin rotar
+    if (this.shape === 'square') return { rx: 3.5 * EB, ry: 3.5 * EB, rot: 0 };                                 // 7x7
+    return { rx: 3.5 * EB, ry: 3.5 * EB, rot: 0 };                                                             // orbe 7x7
+};
 window.drawOfuda = function (b) {
     blit(ctx, ofudaSprite(), b.x + b.width / 2, b.y + b.height / 2, 2, Math.atan2(b.vy, b.vx) + Math.PI / 2);
 };
@@ -12069,7 +12149,7 @@ window.drawThemeBackground = drawRetroBG;
             for (let i = enemyBullets.length - 1; i >= 0; i--) {
                 const b = enemyBullets[i], dx = bh.x - b.x, dy = bh.y - b.y, d = Math.hypot(dx, dy);
                 if (d < 260) { b.x += dx / d * (1.5 + (260 - d) / 40); b.y += dy / d * (1.5 + (260 - d) / 40); }
-                if (d < 26) { enemyBullets.splice(i, 1); score += 2; }
+                if (d < 26 && !bossBulletsImmune()) { enemyBullets.splice(i, 1); score += 2; }
             }
             if (bh.t % 6 === 0) mkBullet(bh.x - 55, bh.y - 55, 110, 110, 0, 0, { pierce: true, dmg: 1.3, life: 3 });
         } else bh = null;
@@ -12343,7 +12423,7 @@ const ShipFX = (function () {
         if (t === 1 && player.armorReady === false && now - player.armorT > 22000) { player.armorReady = true; player.armorFlash = -30; }
         if (player.armorFlash) player.armorFlash += player.armorFlash > 0 ? -1 : 1;
         // Omega: sus balas de plasma borran las balas enemigas
-        if (t === 4 && enemyBullets.length) {
+        if (t === 4 && enemyBullets.length && !bossBulletsImmune()) {
             for (let i = 0; i < bullets.length; i++) {
                 const b = bullets[i]; if (!b.cancel) continue;
                 const bx = b.x + b.width / 2, by = b.y + b.height / 2, r2 = b.cancel * b.cancel;
@@ -12362,7 +12442,7 @@ const ShipFX = (function () {
             const cx = cxOf(), w = 92;
             const b = new Bullet(cx - w / 2, player.y - 150, false, false, 0, -26, 'player', 'mspark');
             b.width = w; b.height = 150; b.pierce = true; b.hitList = []; b.dmgMult = 0.55; b.drawFn = drawSparkSlice;   /* v39: 0.4 → 0.55 */ bullets.push(b);
-            for (let j = enemyBullets.length - 1; j >= 0; j--) { const e = enemyBullets[j]; if (Math.abs(e.x - cx) < w / 2 + 4 && e.y < player.y) enemyBullets.splice(j, 1); }
+            for (let j = enemyBullets.length - 1; j >= 0; j--) { const e = enemyBullets[j]; if (Math.abs(e.x - cx) < w / 2 + 4 && e.y < player.y && !bossBulletsImmune()) enemyBullets.splice(j, 1); }
             drawSparkBeam(cx, now);
             screenShake = Math.max(screenShake, 3);
         }
@@ -15009,14 +15089,14 @@ const GokuFX = (function () {
         else if (!ssj) p._ssjOn = false;
         if (st === 1) {                                       // carga: burbuja de ki que limpia las balas cercanas
             const cy = p.y + p.height / 2;
-            for (let j = enemyBullets.length - 1; j >= 0; j--) { const e = enemyBullets[j], dx = e.x - cx, dy = e.y - cy; if (dx * dx + dy * dy < 72 * 72) enemyBullets.splice(j, 1); }
+            for (let j = enemyBullets.length - 1; j >= 0; j--) { const e = enemyBullets[j], dx = e.x - cx, dy = e.y - cy; if (dx * dx + dy * dy < 72 * 72 && !bossBulletsImmune()) enemyBullets.splice(j, 1); }
         }
         if (st === 2) {
             if (!p._kBeam) { p._kBeam = true; sfx('beam'); screenShake = Math.max(screenShake, 20); }
             const hand = handWorld(p, 'beam', 'L'), yTop = hand.y + 4, w = BEAM_W;
             const b = new Bullet(cx - w / 2, Math.max(-20, yTop - 160), false, false, 0, -28, 'player', 'kame');
             b.width = w; b.height = 160; b.pierce = true; b.hitList = []; b.dmgMult = 0.55; b.drawFn = drawKameSlice; bullets.push(b);
-            for (let j = enemyBullets.length - 1; j >= 0; j--) { const e = enemyBullets[j]; if (Math.abs(e.x - cx) < w / 2 + 6 && e.y < yTop) enemyBullets.splice(j, 1); }
+            for (let j = enemyBullets.length - 1; j >= 0; j--) { const e = enemyBullets[j]; if (Math.abs(e.x - cx) < w / 2 + 6 && e.y < yTop && !bossBulletsImmune()) enemyBullets.splice(j, 1); }
             beam(p, cx, yTop, now);
             screenShake = Math.max(screenShake, 4);
         }
@@ -15405,8 +15485,8 @@ const BombFX = (function () {
         }
         for (const b of bossList()) { if (mark && mark.has(b)) continue; if (circleRect(x, y, r, b)) { if (mark) mark.add(b); hurtBoss(b, db); } }
     }
-    function clearBulletsIn(x, y, r) { for (let j = enemyBullets.length - 1; j >= 0; j--) { const b = enemyBullets[j]; if (Math.hypot(b.x - x, b.y - y) < r) enemyBullets.splice(j, 1); } }
-    function clearAllBullets() { enemyBullets = []; }
+    function clearBulletsIn(x, y, r) { for (let j = enemyBullets.length - 1; j >= 0; j--) { const b = enemyBullets[j]; if (Math.hypot(b.x - x, b.y - y) < r && !bossBulletsImmune()) enemyBullets.splice(j, 1); } }
+    function clearAllBullets() { if (bossBulletsImmune()) return; enemyBullets = []; }
     function nearestTarget(x, y, skip) {
         let best = null, bd = 1e9;
         for (const e of enemies) {
@@ -15654,7 +15734,7 @@ const BombFX = (function () {
                     if (test(e.x + e.width / 2, e.y + e.height / 2, Math.max(e.width, e.height) * 0.4)) { s.mark.add(e); hurtEnemy(e, 9); }
                 }
                 for (const b of bossList()) if (!s.mark.has(b) && test(b.x + b.width / 2, b.y + b.height / 2, Math.max(b.width, b.height) * 0.45)) { s.mark.add(b); hurtBoss(b, 11); }
-                for (let j = enemyBullets.length - 1; j >= 0; j--) if (test(enemyBullets[j].x, enemyBullets[j].y, 10)) enemyBullets.splice(j, 1);
+                for (let j = enemyBullets.length - 1; j >= 0; j--) if (test(enemyBullets[j].x, enemyBullets[j].y, 10) && !bossBulletsImmune()) enemyBullets.splice(j, 1);
                 if (k === 0) screenShake = Math.max(screenShake, 8);
             }
             if (fx.t === fx.dur - 20) clearAllBullets();
@@ -15663,10 +15743,10 @@ const BombFX = (function () {
             const hx = fx.hx, hy = fx.hy;
             if (fx.t < 72) {
                 fx.hr = 4 + 40 * Math.min(1, fx.t / 50);
-                for (let j = enemyBullets.length - 1; j >= 0; j--) {
+                if (!bossBulletsImmune()) for (let j = enemyBullets.length - 1; j >= 0; j--) {
                     const b = enemyBullets[j], dx = hx - b.x, dy = hy - b.y, d = Math.hypot(dx, dy) || 1, sp = Math.min(16, 4 + fx.t * 0.18 + 900 / d);
                     b.x += dx / d * sp; b.y += dy / d * sp;
-                    if (d < fx.hr * 0.8) enemyBullets.splice(j, 1);
+                    if (d < fx.hr * 0.8 && !bossBulletsImmune()) enemyBullets.splice(j, 1);
                 }
                 for (const e of enemies) {                                 // arrastra levemente a los enemigos pequeños
                     if (e.role === 'boss') continue;

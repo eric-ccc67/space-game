@@ -819,9 +819,9 @@
                         <div class="ship-icon ship3"></div>
                         <div class="ship-info"><span class="ship-name">3. Ligera</span><span class="ship-desc">(Veloz · graze x2)</span></div>
                     </button>
-                    <button class="ship-btn" data-ship="4">
+                    <button class="ship-btn locked" data-ship="4">
                         <div class="ship-icon ship4"></div>
-                        <div class="ship-info"><span class="ship-name">4. Omega</span><span class="ship-desc">(Plasma: borra balas)</span></div>
+                        <div class="ship-info"><span class="ship-name">4. ???</span><span class="ship-desc">(Pasa un nivel sin que te golpeen)</span></div>
                     </button>
                     <button class="ship-btn locked" data-ship="5">
                         <div class="ship-icon ship5"></div>
@@ -971,6 +971,8 @@
 <script src="arcoiris_extra.js"></script>
 <!-- IA adaptativa: enemigos y jefes se endurecen según qué tan fuerte esté el jugador (poderes, combo, partners...) -->
 <script src="ia_adaptativa.js"></script>
+<!-- v40: director de apariciones (suelo de enemigos + oleadas temáticas) -->
+<script src="spawn_director.js"></script>
 <script src="hud_tarjetas.js"></script>
 <script src="jefes/motor.js"></script>
 <script src="jefes/j1_kyubi.js"></script>
@@ -980,6 +982,8 @@
 <script src="jefes/j5_archiliche.js"></script>
 <script src="jefes/j6_coloso.js"></script>
 <script src="jefes/j7_ojo.js"></script>
+<!-- v40: 3 ataques dinámicos nuevos por jefe (tentáculos, embestidas, anillos...) -->
+<script src="jefes/dinamicos.js"></script>
 <script src="especiales.js"></script>   <!-- v39: enemigos especiales (ataque x1.25 / gemas) -->
 <script src="skins_fx.js"></script>    <!-- v39: efectos únicos por skin -->
 <script>

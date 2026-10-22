@@ -1,3 +1,13 @@
+## v40
+- **Omega ahora es desbloqueable**: se abre al vencer al jefe de un nivel **sin recibir ningún golpe** en todo ese nivel (vida perdida, blindaje del Tanque roto o escudo que absorbe un impacto cuentan como golpe). Se guarda en el navegador (`sg_omega_v1`). Consola: `Extras.dev.omega(true/false)`. No cuenta en Modo Práctica.
+- **Jefes más dinámicos** (`jefes/dinamicos.js`, nuevo): 3 ataques nuevos por jefe (21 en total) que usan su cuerpo, extremidades y escenario y reaccionan a dónde estás: Kyubi (nueve colas giratorias, embestida, espejismo de máscaras con rayos), Yeti (puño, avalancha por carriles, grietas que te siguen), Kraken (tentáculos cazadores, embate, abrazo: aro de tentáculos que se cierra), Araña (salto con telaraña, tijeras de seda, crías por hilo), Archiliche (libros que te rodean, sello estrella, estanterías por carriles), Coloso (pisotón, arena que sube, campanadas con hueco), Ojo (ojillos con rayo, pupila que atrae, venas). Los de última fase solo salen en la fase 3. Consola: `JefesUnicos.dev.list(2)` / `JefesUnicos.dev.force('cazadores')`.
+- **Mejor aparición de enemigos** (`spawn_director.js`, nuevo): suelo mínimo de enemigos en pantalla por dificultad, enemigos sueltos y filas más seguidas y 4 oleadas temáticas rotativas (pinza, lluvia de veloces sin disparo, escolta, cascada diagonal). Ajustes en `SpawnDirector.cfg`. **Arreglo**: la entrada lateral izquierda de los enemigos daba NaN y los dejaba invisibles durante su entrada.
+- **Hitbox de balas enemigas coherente con el sprite**: antes el punto verde se comparaba con ~2 px aunque la bala midiera ~27 px. Ahora cuenta el cuerpo visible (`HITBOX.cuerpo = 0.5`: mitad central del sprite). Consola: `HITBOX.debug = true` dibuja las hitboxes reales; `HITBOX.cuerpo = 0.4` (más permisivo) / `0.6` (más exigente).
+- **Moneda del mini jefe con pausa** (estilo New Super Mario Bros): al caer el mini jefe el juego se congela ~0,4 s y luego la moneda sale disparada hacia arriba, cae un momento y recién entonces la atrae tu nave.
+- **Últimos 2 jefes en Lunático (Ojo e Invasor)**: sus balas y ataques ya no se pueden romper (ni bombas, ni Omega, ni Marisa/Goku, ni rayos; la singularidad de Omega tampoco las arrastra) y tienen +30 % de defensa (`FINAL_BOSS_DEF_MULT` en `juego.js`).
+
+---
+
 ## v39
 - Arreglo: misiones diarias guardadas de una versión vieja (id inexistente) ya no dejan la pantalla negra; se regeneran solas.
 - Konami táctil (menú principal): desliza ↑ ↑ ↓ ↓ ← → ← →, toca la nave (B) y toca la luna (A). El del teclado sigue igual.
