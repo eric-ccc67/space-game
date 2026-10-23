@@ -668,3 +668,6 @@ Un evento único e interactivo por nivel, una vez por oleada (≈23 s, sin jefes
 
 ## v49 · Calidad gráfica adaptativa (`calidad_dinamica.js`)
 Al disparar desde la parte baja, enemigos y balas de la franja superior se dibujan en modo ligero; con muchas balas (o FPS bajos) se aligeran las lejanas. Solo cambia el dibujo, no hitboxes ni daño. Consola: `CalidadDinamica.cfg.enabled=false`, `CalidadDinamica.state`.
+
+## v50 · Refuerzo de música (`musica_fix.js`)
+Desbloqueo de audio en móviles (touchend/pointerup), reanudación tras bloquear el móvil o cambiar de app, vigilante que reinicia la pista si debía sonar y no suena, y aviso si ningún .mp3 carga. Consola: `MusicFix.status()`.
