@@ -31,7 +31,7 @@
     const snd = n => { try { if (typeof window[n] === 'function') window[n](); } catch (e) {} };
     const FONT = s => s + 'px "Press Start 2P", monospace';
 
-    let act = null, fired = false, lastWT = 0, hitCool = 0;
+    let act = null, fired = false, lastWT = 0, hitCool = 0, streak = 0;
     const floats = [];
     function fl(x, y, txt, col) { if (floats.length < 8) floats.push({ x, y, t: 0, txt, col }); }
 
@@ -48,9 +48,12 @@
         if (lives <= 0) gameOver();
     }
     function reward(ms, pts) {
+        const m = 1 + 0.25 * Math.min(streak - 1, 4); pts = Math.round(pts * m);   // RACHA: eventos seguidos completados
         powerUps.shield = Math.max(powerUps.shield, Date.now() + ms); score += pts;
-        snd('playLevelUpSound'); fl(W() / 2, H() * 0.34, '+' + pts + '  ESCUDO', '#ffe066');
+        snd('playLevelUpSound'); fl(W() / 2, H() * 0.34, '+' + pts + '  ESCUDO' + (streak > 1 ? '  x' + m.toFixed(2) : ''), '#ffe066');
+        try { if (!(Extras.inPractice && Extras.inPractice())) { Shop.addGems(2); fl(W() / 2, H() * 0.34 + 16, '+2 GEMAS', '#7cfcfc'); } } catch (e) {}
     }
+    const busy = () => { for (let i = 0; i < enemies.length; i++) if (enemies[i].fromEvent) return true; return false; };   // no pisar una mini sección
     function segd(px, py, ax, ay, bx, by) {
         const dx = bx - ax, dy = by - ay; const t = clamp(((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy), 0, 1);
         const X = ax + t * dx - px, Y = ay + t * dy - py; return Math.sqrt(X * X + Y * Y);
@@ -248,7 +251,7 @@
         if (!eligible()) { act = null; floats.length = 0; return; }
         if (waveTimer < lastWT - 60) { fired = false; act = null; }
         lastWT = waveTimer;
-        if (!act && !fired && waveTimer >= CFG.START_AT) start(level());
+        if (!act && !fired && waveTimer >= CFG.START_AT && waveTimer < 2000 && !busy()) start(level());
         if (!act && !floats.length) return;
         ctx.save();
         if (act) {
@@ -256,7 +259,13 @@
             const done = d.tick(a.s, a.t) || a.t >= d.dur;
             d.draw(a.s, a.t); banner(a);
             ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W() * 0.3, 6, W() * 0.4, 6); ctx.fillStyle = d.col; ctx.fillRect(W() * 0.3, 6, W() * 0.4 * clamp(a.s.prog, 0, 1), 6);
-            if (done) { const ok = d.ok(a.s); if (ok) reward(d.rw[0], d.rw[1]); else fl(W() / 2, H() * 0.34, 'FIN DEL EVENTO', '#ccc'); act = null; }
+            if (streak > 0) { ctx.textAlign = 'center'; ctx.font = FONT(7); ctx.fillStyle = '#ffe066'; ctx.fillText('RACHA ' + streak, W() / 2, 28); }
+            if (done) {
+                const ok = d.ok(a.s);
+                if (ok) { streak++; reward(d.rw[0], d.rw[1]); }
+                else { streak = 0; if (a.s.prog >= 0.5) { score += 150; fl(W() / 2, H() * 0.34, 'BIEN  +150', '#ccc'); } else fl(W() / 2, H() * 0.34, 'FIN DEL EVENTO', '#ccc'); }
+                act = null;
+            }
         }
         ctx.textAlign = 'center'; ctx.font = FONT(9);
         for (let i = floats.length - 1; i >= 0; i--) { const f = floats[i]; f.t++; f.y -= 0.5; if (f.t > 70) { floats.splice(i, 1); continue; } ctx.globalAlpha = 1 - f.t / 70; ctx.fillStyle = f.col; ctx.fillText(f.txt, f.x, f.y); }
@@ -267,5 +276,5 @@
         try { frame(); } catch (e) { console.warn('[FaseEvents]', e); act = null; }
         return _hud.apply(this, arguments);
     };
-    window.FaseEvents = { cfg: CFG, force(n) { if (isPlaying) { act = null; start(clamp((n | 0) || 1, 1, 7) - 1); } }, stop() { act = null; } };
+    window.FaseEvents = { cfg: CFG, force(n) { if (isPlaying) { act = null; start(clamp((n | 0) || 1, 1, 7) - 1); } }, stop() { act = null; }, get streak() { return streak; } };
 })();

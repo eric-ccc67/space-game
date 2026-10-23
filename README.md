@@ -664,3 +664,7 @@ Se guarda en `localStorage` (`sg_practice_v1`). En la pantalla de práctica elig
 
 ## v46 · Eventos especiales por fase (`eventos_fase.js`)
 Un evento único e interactivo por nivel, una vez por oleada (≈23 s, sin jefes): 1 Fuegos fatuos · 2 Alud · 3 Burbuja de aire · 4 Telaraña · 5 Almas errantes · 6 Temblor · 7 La mirada. Premio: escudo + puntos. Sin balas nuevas, sin sombras, casi 0 coste fuera del evento. Consola: `FaseEvents.force(1..7)`, `FaseEvents.stop()`, `FaseEvents.cfg.enabled=false`.
+- v47+: **RACHA** (eventos seguidos completados suben el premio hasta x2), +2 gemas al completar (no en práctica), premio parcial si llegas al 50 %, y el evento espera a que termine cualquier mini sección de la oleada.
+
+## v49 · Calidad gráfica adaptativa (`calidad_dinamica.js`)
+Al disparar desde la parte baja, enemigos y balas de la franja superior se dibujan en modo ligero; con muchas balas (o FPS bajos) se aligeran las lejanas. Solo cambia el dibujo, no hitboxes ni daño. Consola: `CalidadDinamica.cfg.enabled=false`, `CalidadDinamica.state`.
