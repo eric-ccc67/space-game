@@ -10,3 +10,8 @@ bruhxd
 Las tablas se crean solas la primera vez. No hay que importar ningún .sql.
 `api/ranking.js` reemplaza a `api.php`; `vercel.json` redirige /api.php hacia él, así que el juego no cambió.
 `local-xampp/` guarda el api.php y el .sql originales por si quieres seguir usando XAMPP.
+
+## Instalar el juego en el teléfono (v43)
+En el menú del juego está la opción **Descargar app**. Funciona sola al publicar en Vercel (necesita https).
+- Android (Chrome/Edge): un toque y se instala. iPhone: Safari > Compartir > Añadir a pantalla de inicio (la ventana del juego lo explica).
+- Si quieres un archivo .apk de verdad (Play Store o para pasar por WhatsApp), entra a pwabuilder.com, pega la URL de tu juego en Vercel y descarga el paquete de Android: usa estos mismos archivos.

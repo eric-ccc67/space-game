@@ -2240,7 +2240,7 @@ class Player {
     update() {
         this.animT++;
         // No mover si estamos en la animación inicial
-        if (gameStartTimer > 0) return; 
+        if (gameStartTimer > 0 || (typeof Cine !== 'undefined' && Cine.exitActive && Cine.exitActive())) return; 
 
         // Movimiento: teclado (digital) o joystick táctil (analógico). SLOW/Shift = movimiento lento y preciso.
         const TI = window.TouchInput;
@@ -4046,6 +4046,124 @@ function collectPointItem(pt) {
 
 // Al caer el mini jefe se otorga una recompensa menor que la del jefe final,
 // y el nivel continúa con la SEGUNDA oleada de enemigos antes del jefe final.
+// ---------------------------------------------------------------------------
+// v43: ESCENA DE LA MONEDA — al caer el mini jefe el juego se congela 2 segundos: una moneda aparece donde murió,
+// gira, sube hasta el contador de monedas de arriba y lo rellena (se ve cuántas llevas, n/7).
+// ---------------------------------------------------------------------------
+let coinCine = null;
+const COIN_CINE_MS = 2000;
+
+function playCoinTing() {
+    try {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        [987.77, 1318.51].forEach((f, i) => {
+            const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime + i * 0.09;
+            o.type = 'square'; o.connect(g); g.connect(audioCtx.destination);
+            o.frequency.setValueAtTime(f, t);
+            g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.07, t + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + (i ? 0.35 : 0.1));
+            o.start(t); o.stop(t + (i ? 0.36 : 0.11));
+        });
+    } catch (e) {}
+}
+
+function startCoinCine(x, y) {
+    const have = Extras.coinCount(), award = Extras.canDropCoin();
+    coinCine = { x, y, have, award, el: 0, last: 0, snap: null, landed: false, parts: [], trailT: 0 };
+}
+
+function drawCoinSprite(cx, cy, R, ang) {
+    const sx = 0.14 + 0.86 * Math.abs(Math.cos(ang));
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g0 = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 2.4);
+    g0.addColorStop(0, 'rgba(255,220,90,0.6)'); g0.addColorStop(1, 'rgba(255,200,60,0)');
+    ctx.fillStyle = g0; ctx.beginPath(); ctx.arc(cx, cy, R * 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.translate(cx, cy); ctx.scale(sx, 1);
+    const g = ctx.createLinearGradient(-R, -R, R, R); g.addColorStop(0, '#fff6b0'); g.addColorStop(0.5, '#ffc61a'); g.addColorStop(1, '#b87a00');
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+    ctx.lineWidth = Math.max(2, R * 0.16); ctx.strokeStyle = '#8a5a00'; ctx.stroke();
+    ctx.lineWidth = Math.max(1, R * 0.1); ctx.strokeStyle = 'rgba(255,248,200,0.9)'; ctx.beginPath(); ctx.arc(0, 0, R * 0.68, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? R * 0.2 : R * 0.48; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+    ctx.closePath(); ctx.fillStyle = '#8a5a00'; ctx.fill();
+    ctx.restore();
+}
+
+function drawCoinCine() {
+    const c = coinCine, now = performance.now(), W = playAreaW, H = playAreaH;
+    if (!c.snap) {                                   // foto del último fotograma: el juego queda congelado detrás
+        c.snap = document.createElement('canvas'); c.snap.width = canvas.width; c.snap.height = canvas.height;
+        c.snap.getContext('2d').drawImage(canvas, 0, 0);
+        c.last = now;
+        if (c.award) { try { Extras.collectCoin(null); } catch (e) { console.warn('coin', e); } }   // se guarda ya (por si sales a mitad)
+        playCoinTing();
+    }
+    c.el += Math.min(50, now - c.last); c.last = now;          // el tiempo no avanza si pausas
+    const el = c.el, T = COIN_CINE_MS;
+    const clamp01 = v => Math.max(0, Math.min(1, v));
+    const ss = (a, b) => { const k = clamp01((el - a) / (b - a)); return k * k * (3 - 2 * k); };
+    const ease = k => k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const back = k => 1 + 2.70158 * Math.pow(k - 1, 3) + 1.70158 * Math.pow(k - 1, 2);
+    const out = 1 - ss(T - 200, T);                            // fundido de salida
+    const lite = typeof performanceMode !== 'undefined' && performanceMode;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(c.snap, 0, 0);
+    ctx.fillStyle = 'rgba(0,0,0,' + (0.5 * ss(0, 250) * out).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
+
+    // contador (panel superior)
+    const n = Math.min(7, c.have + (c.award && c.landed ? 1 : 0));
+    const pw = Math.min(W * 0.88, 340), ph = 74, px = W / 2 - pw / 2, py = H * 0.05 + (1 - ss(450, 800)) * -24;
+    const pa = ss(450, 800) * out;
+    const slotI = c.award ? Math.min(6, c.have) : 6;
+    const sx0 = px + 26, sdx = (pw - 52) / 6, sy = py + 50, slotX = i => sx0 + sdx * i;
+    ctx.save(); ctx.globalAlpha = pa;
+    ctx.fillStyle = 'rgba(30,18,0,0.88)'; ctx.fillRect(px, py, pw, ph);
+    ctx.strokeStyle = '#ffc61a'; ctx.lineWidth = 3; ctx.strokeRect(px + 1.5, py + 1.5, pw - 3, ph - 3);
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillStyle = '#ffd84a';
+    ctx.font = Math.max(7, Math.min(10, W * 0.019)) + 'px "Press Start 2P"';
+    ctx.fillText('MONEDAS', px + 14, py + 18);
+    const pop = c.landed ? 1 + 0.45 * Math.max(0, 1 - (el - c.landT) / 300) : 1;
+    ctx.save(); ctx.textAlign = 'right'; ctx.translate(px + pw - 14, py + 18); ctx.scale(pop, pop);
+    ctx.font = Math.max(12, Math.min(20, W * 0.04)) + 'px "Press Start 2P"';
+    ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.strokeText(n + '/7', 0, 0); ctx.fillStyle = '#fff'; ctx.fillText(n + '/7', 0, 0);
+    ctx.restore();
+    for (let i = 0; i < 7; i++) {
+        const filled = i < n, flash = (c.landed && i === slotI) ? Math.max(0, 1 - (el - c.landT) / 350) : 0;
+        ctx.beginPath(); ctx.arc(slotX(i), sy, 11, 0, Math.PI * 2);
+        ctx.fillStyle = filled ? '#ffc61a' : 'rgba(255,255,255,0.08)'; ctx.fill();
+        ctx.lineWidth = 2; ctx.strokeStyle = filled ? '#fff6b0' : 'rgba(255,200,60,0.45)'; ctx.stroke();
+        if (filled) { ctx.fillStyle = '#8a5a00'; ctx.font = '9px "Press Start 2P"'; ctx.textAlign = 'center'; ctx.fillText(String(i + 1), slotX(i), sy + 1); }
+        if (flash > 0) { ctx.beginPath(); ctx.arc(slotX(i), sy, 11 + 14 * (1 - flash), 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,240,150,' + flash.toFixed(2) + ')'; ctx.lineWidth = 3; ctx.stroke(); }
+    }
+    ctx.restore();
+
+    // moneda: aparece donde cayó el mini jefe, gira y sube hasta su casilla del contador
+    const tx = slotX(slotI), ty = sy;
+    const k = ease(clamp01((el - 250) / 1200));
+    const cxm = c.x + (tx - c.x) * k, cym = c.y + (ty - c.y) * k - Math.sin(k * Math.PI) * 30;
+    const R = (30 - 17 * k) * back(clamp01(el / 260));
+    if (el < 1450 + 40) {
+        ctx.globalAlpha = out; drawCoinSprite(cxm, cym, Math.max(2, R), el * 0.018); ctx.globalAlpha = 1;
+        c.trailT += 16;
+        if (c.trailT > 40 && el > 250) { c.trailT = 0; c.parts.push({ x: cxm + (Math.random() - 0.5) * 16, y: cym + 8, vx: (Math.random() - 0.5) * 0.6, vy: 0.4 + Math.random() * 0.8, life: 420, max: 420, s: 2 + Math.random() * 2.5 }); }
+    }
+    if (!c.landed && el >= 1450) {                   // aterriza en el contador
+        c.landed = true; c.landT = el; playCoinTing();
+        for (let i = 0, m = lite ? 10 : 22; i < m; i++) { const a = Math.random() * Math.PI * 2, sp = 1 + Math.random() * 3.2; c.parts.push({ x: tx, y: ty, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 520, max: 520, s: 2 + Math.random() * 3 }); }
+    }
+    // chispas
+    for (let i = c.parts.length - 1; i >= 0; i--) {
+        const p = c.parts[i]; p.x += p.vx; p.y += p.vy; p.life -= 16.7;
+        if (p.life <= 0) { c.parts.splice(i, 1); continue; }
+        ctx.globalAlpha = Math.min(1, p.life / p.max * 1.6) * out; ctx.fillStyle = (i % 2) ? '#fff6b0' : '#ffc61a';
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.PI / 4); ctx.fillRect(-p.s / 2, -p.s / 2, p.s, p.s); ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    if (el >= T) coinCine = null;
+}
+
 function defeatMiniBoss() {
     if (!activeMiniBoss || activeMiniBoss.state === 'dead') return;
     activeMiniBoss.state = 'dead';
@@ -4053,8 +4171,8 @@ function defeatMiniBoss() {
     // v39: moneda para Reimu / Marisa. v40: como en los New Super Mario Bros, el juego se congela un instante al caer el mini jefe
     // y después la moneda sale despedida hacia arriba antes de ir hacia tu nave.
     const coinX = activeMiniBoss.x + activeMiniBoss.width / 2, coinY = activeMiniBoss.y + activeMiniBoss.height / 2;
-    window.__hitStop = 24;
-    setTimeout(() => { if (!isPlaying) return; try { Extras.dropCoin(coinX, coinY, true); } catch (e) { console.warn('dropCoin', e); } }, 24 * 17 + 120);
+    // v43: el juego se congela 2 s con la escena de la moneda (drawCoinCine). En el Modo Práctica no hay monedas: solo la pausa corta.
+    if (Extras.coinsEnabled()) startCoinCine(coinX, coinY); else window.__hitStop = 24;
     createExplosion(activeMiniBoss.x + activeMiniBoss.width/2, activeMiniBoss.y + activeMiniBoss.height/2, '#fa0', 200);
     screenShake = 35; score += 1500;
     for (let k = 0; k < Math.max(2, Math.round(6 * powerupDropMult())); k++) items.push(new Item(activeMiniBoss.x + Math.random()*activeMiniBoss.width, activeMiniBoss.y + Math.random()*activeMiniBoss.height));
@@ -4139,20 +4257,13 @@ function nextWave() {
     }
 }
 
-// Al caer el jefe, se muestra un resumen del nivel superado: puntaje ganado,
-// enemigos vencidos y poderes recogidos. Para continuar, hay que dispararle
-// al botón "SEGUIR" (no basta con esperar), como una recompensa activa.
+// Al caer el jefe aparece arriba una flecha animada (ver drawLevelExitArrow): al subir hasta ella suena la cinemática
+// de salida del nivel y se pasa al siguiente. Sin ventana de "SEGUIR".
+// Modo normal (Moderno, dificultades no lunáticas): al caer el jefe del nivel 6 (Torre del Reloj) se pide el nombre,
+// se guarda la partida y se vuelve directamente al menú.
 function triggerLevelComplete() {
     if (practiceStage) { finishPractice(); return; }
-    // v16: al vencer al jefe del nivel 6 (dificultades no lunáticas) aparece la pantalla para ingresar tu nombre y
-    // guardar tu partida; al cerrarla, el juego sigue como siempre.
-    if (currentMode === 'moderno' && currentWave === 6 && currentDiff !== 'lunatico' && typeof Perfil !== 'undefined' && !window._perfil6) {
-        window._perfil6 = true;
-        Perfil.endRun('clear', () => { triggerLevelComplete(); });
-        return;
-    }
-    // ¿Se pasó el juego? (jefe del nivel 6 en cualquier dificultad) -> se desbloquea el Modo Práctica
-    if (currentMode === 'moderno' && currentWave === 6 && currentDiff !== 'lunatico' && typeof TouhouUI !== 'undefined') TouhouUI.onClear(false);
+    if (currentMode === 'moderno' && currentWave === 6 && currentDiff !== 'lunatico') { triggerNormalClear(); return; }
     Extras.onBossDefeated();
     let levelDisplayNum = ((currentWave - 1) % activeLevelCount()) + 1;
     levelCompleteData = {
@@ -4165,7 +4276,49 @@ function triggerLevelComplete() {
     enemies = [];
     enemyBullets = [];
     levelCompleteHits = 0;
+    levelExitArrowT = 0; levelExitBusy = false; levelExitSparks.length = 0;
     levelCompleteActive = true;
+}
+
+// Fin del juego en modo normal (jefe del nivel 6): nombre -> guardar -> menú.
+function triggerNormalClear() {
+    if (typeof TouhouUI !== 'undefined') TouhouUI.onClear(false);   // se pasó el juego: se desbloquea el Modo Práctica
+    Extras.onBossDefeated(); Extras.onRunEnd(true);
+    isPlaying = false;
+    gameWinActive = true;
+    stopMusic();
+    activeBoss = null;
+    enemyBullets = []; enemies = [];
+    drawGameClearScreen();
+    const backToMenu = () => {
+        gameWinActive = false;
+        try { Object.keys(keys).forEach(k => { keys[k] = false; }); } catch (e) {}
+        window.__menuLockUntil = Date.now() + 900;
+        try { if (typeof TouhouUI !== 'undefined' && TouhouUI.show) TouhouUI.show('main'); } catch (e) {}
+        isMenu = true; menuUI.classList.remove('hidden'); if(optMobile.checked) mobileControls.classList.add('hidden');
+        document.body.classList.remove('mobile-playing');
+        fitGameToScreen();
+        menuLoop();
+    };
+    if (typeof Perfil !== 'undefined') setTimeout(() => Perfil.endRun('clear', backToMenu), 1500);
+    else setTimeout(backToMenu, 5000);
+}
+
+function drawGameClearScreen() {
+    ctx.save();
+    ctx.fillStyle = 'rgba(10,6,0,0.9)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ffcf5c'; ctx.shadowBlur = 22;
+    ctx.fillStyle = '#ffcf5c';
+    ctx.font = `${Math.max(20, Math.min(40, canvas.width * 0.06))}px "Press Start 2P"`;
+    ctx.fillText('¡JUEGO COMPLETADO!', canvas.width / 2, canvas.height / 2 - 40);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.font = `${Math.max(11, Math.min(16, canvas.width * 0.026))}px "Press Start 2P"`;
+    ctx.fillText('Venciste al jefe de la Torre del Reloj', canvas.width / 2, canvas.height / 2 - 4);
+    ctx.fillText(`Puntaje final: ${score}`, canvas.width / 2, canvas.height / 2 + 28);
+    ctx.textAlign = 'left';
+    ctx.restore();
 }
 
 // ==========================================
@@ -4259,108 +4412,113 @@ function drawGameWinScreen() {
     ctx.restore();
 }
 
-function getLevelCompleteBtnRect() {
-    let w = Math.min(240, playAreaW * 0.55);
-    let h = Math.min(54, playAreaH * 0.09);
-    let y = Math.min(playAreaH * 0.8, playAreaH - h - 40);
-    return { x: playAreaW / 2 - w / 2, y: y, w: w, h: h };
+// ==========================================
+// FLECHA DE SALIDA (sustituye a la antigua ventana de "SEGUIR"): al caer el jefe aparece arriba una flecha animada
+// que te señala hacia arriba. Al subir la nave hasta ella suena la cinemática de salida del nivel (Cine.startExit)
+// y después se pasa al siguiente nivel (poderes -> nextWave -> llegada de la nave).
+// ==========================================
+const levelExitSparks = [];
+let levelExitArrowT = 0;
+let levelExitBusy = false;
+
+function levelExitZoneY() { return playAreaH * 0.17; }
+
+function hexAlpha(h, a) {
+    if (typeof h !== 'string' || h.length !== 7) h = '#ffcf5c';
+    const n = parseInt(h.slice(1), 16);
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
 }
 
-function drawLevelCompleteOverlay() {
-    let d = levelCompleteData;
-    if (!d) return;
+function drawLevelExitArrow() {
+    const t = levelExitArrowT++, W = playAreaW, H = playAreaH, cx = W / 2;
+    const lite = typeof performanceMode !== 'undefined' && performanceMode;
+    const accent = (typeof currentTheme !== 'undefined' && currentTheme && currentTheme.accent) || '#ffcf5c';
+    const ap = Math.min(1, t / 40);
+    const pop = 1 + 2.70158 * Math.pow(ap - 1, 3) + 1.70158 * Math.pow(ap - 1, 2);          // rebote de entrada
+    const pcy = player ? player.y + player.height / 2 : H;
+    const near = Math.max(0, Math.min(1, (H * 0.62 - pcy) / (H * 0.62 - levelExitZoneY())));  // 0 lejos · 1 dentro de la salida
+    const beat = 0.5 + 0.5 * Math.sin(t * (0.09 + 0.1 * near));
+    const ah = Math.max(54, Math.min(100, H * 0.14)), aw = ah * 0.78;
+    const top = H * 0.035 + Math.sin(t * 0.11) * (5 + 4 * near), bot = top + ah;
     ctx.save();
-    ctx.fillStyle = 'rgba(0, 5, 10, 0.72)';
-    ctx.fillRect(0, 0, playAreaW, playAreaH);
 
-    let panelW = Math.min(playAreaW * 0.86, 420);
-    let panelX = playAreaW / 2 - panelW / 2;
-    let panelY = playAreaH * 0.07;
-    let panelH = playAreaH * 0.7;
+    // luz de salida arriba + haz que baja hacia la nave
+    const gl = ctx.createLinearGradient(0, 0, 0, H * 0.34);
+    gl.addColorStop(0, hexAlpha(accent, (0.3 + 0.12 * beat + 0.2 * near) * ap)); gl.addColorStop(1, hexAlpha(accent, 0));
+    ctx.fillStyle = gl; ctx.fillRect(0, 0, W, H * 0.34);
+    const bm = ctx.createLinearGradient(0, bot, 0, H * 0.62);
+    bm.addColorStop(0, hexAlpha(accent, (0.16 + 0.08 * beat + 0.12 * near) * ap)); bm.addColorStop(1, hexAlpha(accent, 0));
+    ctx.fillStyle = bm; ctx.beginPath();
+    ctx.moveTo(cx - aw * 0.5, bot); ctx.lineTo(cx + aw * 0.5, bot); ctx.lineTo(cx + aw * 1.3, H * 0.62); ctx.lineTo(cx - aw * 1.3, H * 0.62); ctx.closePath(); ctx.fill();
 
-    ctx.fillStyle = 'rgba(0, 20, 30, 0.88)';
-    ctx.strokeStyle = currentTheme.accent;
-    ctx.lineWidth = 2;
-    ctx.shadowColor = currentTheme.accent; ctx.shadowBlur = 18;
-    ctx.fillRect(panelX, panelY, panelW, panelH);
-    ctx.strokeRect(panelX, panelY, panelW, panelH);
-    ctx.shadowBlur = 0;
-
-    let cx = playAreaW / 2;
-    let fsTitle = Math.max(10, Math.min(15, playAreaW * 0.026));
-    let fsBody = Math.max(7, Math.min(10, playAreaW * 0.019));
-
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#fff';
-    ctx.font = `${fsTitle}px "Press Start 2P"`;
-    ctx.fillText(`NIVEL ${d.levelNum} COMPLETADO`, cx, panelY + 28);
-
-    ctx.fillStyle = currentTheme.accent;
-    ctx.font = `${fsBody}px "Press Start 2P"`;
-    ctx.fillText(d.levelName.toUpperCase(), cx, panelY + 48);
-
-    let lx = panelX + 22;
-    let rx = panelX + panelW - 22;
-    let ly = panelY + 80;
-
-    ctx.font = `${fsBody}px "Press Start 2P"`;
-    ctx.textAlign = 'left'; ctx.fillStyle = '#0ff';
-    ctx.fillText('Puntaje obtenido:', lx, ly);
-    ctx.textAlign = 'right'; ctx.fillStyle = '#fff';
-    ctx.fillText(`+${d.scoreGained}`, rx, ly);
-
-    ly += 24;
-    ctx.textAlign = 'left'; ctx.fillStyle = '#f80';
-    ctx.fillText('Enemigos vencidos:', lx, ly);
-    ctx.textAlign = 'right'; ctx.fillStyle = '#fff';
-    ctx.fillText(`${d.enemiesDefeated}`, rx, ly);
-
-    ly += 30;
-    ctx.textAlign = 'left'; ctx.fillStyle = '#5f5';
-    ctx.fillText('Poderes obtenidos:', lx, ly);
-    ly += 20;
-    let powerKeys = Object.keys(d.powerUps);
-    ctx.font = `${fsBody * 0.85}px "Press Start 2P"`;
-    if (powerKeys.length === 0) {
-        ctx.fillStyle = '#888';
-        ctx.fillText('Ninguno esta vez', lx + 10, ly);
-        ly += 17;
-    } else {
-        powerKeys.forEach(k => {
-            ctx.fillStyle = '#ccc';
-            ctx.fillText(`- ${k} x${d.powerUps[k]}`, lx + 10, ly);
-            ly += 17;
-        });
+    // chispas que suben por el haz
+    if (t % (lite ? 6 : 3) === 0 && levelExitSparks.length < 36)
+        levelExitSparks.push({ x: cx + (Math.random() * 2 - 1) * aw * 1.0, y: H * (0.45 + Math.random() * 0.15), vy: 1.2 + Math.random() * 1.4, s: 1.5 + Math.random() * 2, life: 90 });
+    for (let i = levelExitSparks.length - 1; i >= 0; i--) {
+        const sp = levelExitSparks[i]; sp.y -= sp.vy; sp.life--;
+        if (sp.life <= 0 || sp.y < bot) { levelExitSparks.splice(i, 1); continue; }
+        ctx.globalAlpha = Math.min(1, sp.life / 40) * 0.85 * ap; ctx.fillStyle = (i % 2) ? '#fff' : accent;
+        ctx.save(); ctx.translate(sp.x, sp.y); ctx.rotate(Math.PI / 4); ctx.fillRect(-sp.s / 2, -sp.s / 2, sp.s, sp.s); ctx.restore();
     }
+    ctx.globalAlpha = 1;
 
-    // Botón "SEGUIR": late suavemente y hay que dispararle para avanzar
-    let btn = getLevelCompleteBtnRect();
-    let pulse = 1 + Math.sin(Date.now() * 0.006) * 0.045;
+    // chevrones en cascada que suben hacia la flecha
+    const travel = ah * 0.55, cw = aw * 0.55, ch = cw * 0.55;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 5;
+    for (let i = 0; i < 3; i++) {
+        const ph = (t * 0.022 + i / 3) % 1, y = bot + 14 + travel * (1 - ph);
+        ctx.globalAlpha = Math.sin(ph * Math.PI) * 0.85 * ap; ctx.strokeStyle = accent;
+        if (!lite) { ctx.shadowColor = accent; ctx.shadowBlur = 10; }
+        ctx.beginPath(); ctx.moveTo(cx - cw, y + ch); ctx.lineTo(cx, y); ctx.lineTo(cx + cw, y + ch); ctx.stroke();
+    }
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+
+    // flecha principal
     ctx.save();
-    ctx.translate(btn.x + btn.w / 2, btn.y + btn.h / 2);
-    ctx.scale(pulse, pulse);
-    ctx.translate(-(btn.x + btn.w / 2), -(btn.y + btn.h / 2));
-    ctx.fillStyle = 'rgba(0,255,255,0.18)';
-    ctx.strokeStyle = '#0ff'; ctx.lineWidth = 2;
-    ctx.shadowColor = '#0ff'; ctx.shadowBlur = 16;
-    ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
-    ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
-    ctx.font = `${Math.max(10, Math.min(14, playAreaW * 0.024))}px "Press Start 2P"`;
-    ctx.fillText('SEGUIR', btn.x + btn.w / 2, btn.y + btn.h / 2 + 5);
+    ctx.translate(cx, top + ah / 2); ctx.scale(pop, pop); ctx.translate(-cx, -(top + ah / 2));
+    const hw = aw / 2, sw = aw * 0.21, hh = ah * 0.5;
+    const fg = ctx.createLinearGradient(0, top, 0, bot);
+    fg.addColorStop(0, '#ffffff'); fg.addColorStop(1, accent);
+    ctx.beginPath();
+    ctx.moveTo(cx, top); ctx.lineTo(cx + hw, top + hh); ctx.lineTo(cx + sw, top + hh); ctx.lineTo(cx + sw, bot);
+    ctx.lineTo(cx - sw, bot); ctx.lineTo(cx - sw, top + hh); ctx.lineTo(cx - hw, top + hh); ctx.closePath();
+    if (!lite) { ctx.shadowColor = accent; ctx.shadowBlur = 16 + 14 * beat + 10 * near; }
+    ctx.fillStyle = fg; ctx.fill();
+    ctx.shadowBlur = 0; ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath();                      // brillo interior
+    ctx.moveTo(cx, top + 7); ctx.lineTo(cx + hw * 0.45, top + hh * 0.7); ctx.lineTo(cx, top + hh * 0.55); ctx.closePath(); ctx.fill();
     ctx.restore();
 
-    let progRatio = Math.min(1, levelCompleteHits / LEVEL_COMPLETE_HITS_NEEDED);
-    drawBar(btn.x, btn.y + btn.h + 10, btn.w, 8, progRatio, '#0ff');
-
-    ctx.fillStyle = '#9cf';
-    ctx.font = `${fsBody * 0.8}px "Press Start 2P"`;
-    ctx.textAlign = 'center';
-    ctx.fillText('¡Dispárale al botón para continuar!', cx, btn.y + btn.h + 32);
-
-    ctx.textAlign = 'left';
+    // rótulo
+    ctx.globalAlpha = Math.min(1, ap) * (0.8 + 0.2 * Math.sin(t * 0.12));
+    ctx.font = Math.max(9, Math.min(15, W * 0.028)) + 'px "Press Start 2P"';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const ly = bot + 14 + travel + 30;
+    ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.strokeText('SIGUIENTE NIVEL', cx, ly);
+    if (!lite) { ctx.shadowColor = accent; ctx.shadowBlur = 8; }
+    ctx.fillStyle = '#fff'; ctx.fillText('SIGUIENTE NIVEL', cx, ly);
     ctx.restore();
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+}
+
+function startLevelExit() {
+    if (levelExitBusy) return;
+    levelExitBusy = true;
+    try { playLevelUpSound(); } catch (e) {}
+    try { stopShoot(); } catch (e) {}
+    invulnerableUntil = Date.now() + 12000;
+    const go = () => {
+        levelExitBusy = false; levelExitArrowT = 0; levelExitSparks.length = 0;
+        levelCompleteActive = false; levelCompleteData = null; levelCompleteHits = 0;
+        if (typeof Perks !== 'undefined') Perks.offer(nextWave); else nextWave();
+    };
+    if (typeof Cine !== 'undefined' && Cine.startExit) Cine.startExit(currentLevelIndex(), go); else go();
+}
+
+function drawLevelExit() {
+    if (levelExitBusy) return;                 // la cinemática de salida la dibuja Cine.drawExit()
+    drawLevelExitArrow();
+    if (levelExitArrowT > 50 && player && player.y + player.height / 2 < levelExitZoneY()) startLevelExit();
 }
 
 // ==========================================
@@ -4708,6 +4866,7 @@ function drawHudBottom() {
 
 function initGame() {
     window._perfil6 = false;
+    coinCine = null;
     if (typeof Cine !== 'undefined') Cine.reset();
     isPlaying = true;
     isMenu = false;
@@ -4732,7 +4891,7 @@ function initGame() {
     powerLevel = 1; enemiesDefeatedForPower = 0; levelUpFlash = 0;
     continuesLeft = MAX_CONTINUES; continueState = null;
 
-    levelCompleteActive = false; levelCompleteData = null; levelCompleteHits = 0;
+    levelCompleteActive = false; levelCompleteData = null; levelCompleteHits = 0; levelExitBusy = false; levelExitArrowT = 0; levelExitSparks.length = 0;
     levelEnemiesDefeated = 0; levelPowerUpsCollected = {}; levelScoreStart = 0;
     
     bombEffect = { active: false, radius: 0, maxRadius: 0, x: 0, y: 0 };
@@ -4842,6 +5001,7 @@ function gameLoop() {
     if (continueState) { drawContinue(); requestAnimationFrame(gameLoop); return; }               // ¿continuar?
     
     if (Extras.takeover()) { requestAnimationFrame(gameLoop); return; }
+    if (coinCine) { drawCoinCine(); requestAnimationFrame(gameLoop); return; }                    // v43: escena de la moneda (2 s)
     if (window.__hitStop > 0) { window.__hitStop--; requestAnimationFrame(gameLoop); return; }   // v40: pausa corta al caer el mini jefe (antes de que salga la moneda)
     
     updateMusicState();
@@ -5201,18 +5361,7 @@ function gameLoop() {
 
         if (currentMode !== 'clasico') {
             if (levelCompleteActive) {
-                let btn = getLevelCompleteBtnRect();
-                if (b.x < btn.x + btn.w && b.x + b.width > btn.x && b.y < btn.y + btn.h && b.y + b.height > btn.y) {
-                    levelCompleteHits++;
-                    createExplosion(b.x, b.y, '#0ff', 4, true);
-                    bullets.splice(i, 1);
-                    if (levelCompleteHits >= LEVEL_COMPLETE_HITS_NEEDED) {
-                        levelCompleteActive = false;
-                        levelCompleteData = null;
-                        if (typeof Perks !== 'undefined') Perks.offer(nextWave); else nextWave();
-                    }
-                    continue;
-                }
+                // jefe vencido: ya no hay ventana de SEGUIR; las balas siguen su camino y la salida es la flecha de arriba
             } else if (activeBoss && activeBoss.state === 'active') {
                 if (!(b.pierce && b.hitList.includes(activeBoss)) && b.x < activeBoss.x + activeBoss.width && b.x + b.width > activeBoss.x && b.y < activeBoss.y + activeBoss.height && b.y + b.height > activeBoss.y) {
                     let dmg = b.isSuper ? 3 : (b.source === 'partner' ? (0.3 + (window.Combo ? Combo.partnerBonus() : 0)) : (b.dmgMult || 1));
@@ -5524,9 +5673,8 @@ function gameLoop() {
         ctx.textAlign = 'left';
     }
 
-    if (levelCompleteActive && currentMode !== 'clasico') {
-        drawLevelCompleteOverlay();
-    }
+    if (levelCompleteActive && currentMode !== 'clasico') drawLevelExit();
+    if (typeof Cine !== 'undefined') { Cine.drawExit(); Cine.drawVeil(); }   // cinemática de salida + fundido hasta la llegada del siguiente nivel
 
     if (powerUps.shield > Date.now() && !(typeof Cine !== 'undefined' && Cine.hidesPlayer())) {
         ctx.strokeStyle = '#0ff'; ctx.beginPath(); ctx.arc(player.x + player.width/2, player.y + player.height/2, 25, 0, Math.PI*2); ctx.stroke();
@@ -5580,7 +5728,7 @@ function currentFireDelay() {
 }
 
 function shoot() {
-    if (!isPlaying || gameStartTimer > 0 || Extras.busy() || reviveAnim) return;
+    if (!isPlaying || gameStartTimer > 0 || Extras.busy() || reviveAnim || (typeof Cine !== 'undefined' && Cine.exitActive && Cine.exitActive())) return;
     
     if (player.type === 2) {
         if (!isCharging) {
@@ -7177,6 +7325,8 @@ const Extras = (function () {
         },
         collectCoin(pt) { if (pt && pt.coinPending === false) return; if (pt) pt.coinPending = false; addCoin(); },
         coinsNeeded() { return { reimu: COIN_REIMU, marisa: COIN_MARISA }; },
+        coinsEnabled() { return !inPractice(); },                      // v43: ¿cuentan las monedas? (no en Modo Práctica)
+        canDropCoin() { return !inPractice() && coinCount() < 7; },    // v43: ¿este mini jefe da moneda?
         onLevelStart() { levelHit = false; levelTouched = false; lastArmor = true; },
         onHit() { levelTouched = true; },          // v40: un golpe que no quita vida (escudo) también cuenta para Omega
         omegaUnlocked() { return omega; },
@@ -7734,6 +7884,210 @@ const Cine = (function () {
     }
 
     // ==================================================================
+    //  1b) SALIDA DE LA NAVE — al cruzar la flecha que aparece tras vencer al jefe: una cinemática distinta por nivel
+    //      que termina en un fundido de color. Al acabar llama a done() (poderes + siguiente nivel) y el fundido
+    //      se mantiene hasta que arranca la llegada del nivel nuevo. ENTER: saltar.
+    // ==================================================================
+    let ex = null, veil = null;
+
+    // trayectoria base: la nave espera cargando (0..a) y luego acelera hacia arriba hasta salir de la pantalla (a..b)
+    function riseTo(e, p, a, b, wob) {
+        const s = e.S, k = eIn(prog(a, b, p)), cg = sstep(0, a, p) * (1 - sstep(a * 0.85, a, p));
+        return {
+            x: lerp(s.x, W() / 2, sstep(a, b, p) * 0.6) + Math.sin(e.t * 1.7) * 1.6 * cg + (wob || 0),
+            y: lerp(s.y, -110, k) + Math.sin(e.t * 2.1) * 1.2 * cg,
+            sx: 1 - 0.22 * k, sy: 1 + 0.55 * k, thrust: 1 + 1.4 * Math.max(cg * 0.5, k), a: 1
+        };
+    }
+
+    const X0 = { // SAKURA: torbellino de pétalos y subida en espiral
+        dur: 170, col: '#ffd6e8', A: 0.24, B: 0.8,
+        pose(e, p) { return riseTo(e, p, this.A, this.B, Math.sin(p * 26) * 20 * sstep(this.A, this.A + 0.12, p) * (1 - sstep(0.6, 0.8, p))); },
+        step(e, p) {
+            const ps = this.pose(e, p);
+            if (p < this.A && e.t % 2 === 0) { const an = rr(0, TAU), d = rr(60, 130); emit(e.parts, { kind: 'petal', x: ps.x + Math.cos(an) * d, y: ps.y + Math.sin(an) * d * 0.6, vx: -Math.cos(an) * 2.4, vy: -Math.sin(an) * 1.5, rot: rr(0, TAU), vr: rr(-0.2, 0.2), size: rr(3, 6), col: pick(PINKS), life: 36, max: 36 }); }
+            if (p >= this.A && p < this.B) for (let k = 0; k < 2; k++) { const an = e.t * 0.5 + k * Math.PI; emit(e.parts, { kind: 'petal', x: ps.x + Math.cos(an) * 26, y: ps.y + 12 + Math.sin(an) * 8, vx: Math.cos(an) * 1.2, vy: rr(1, 2.6), rot: rr(0, TAU), vr: rr(-0.2, 0.2), size: rr(2.5, 5), col: pick(PINKS), life: 50, max: 50 }); }
+            if (!e.go && p >= this.A) { e.go = 1; shake(6); for (let i = 0, n = lite() ? 14 : 30; i < n; i++) { const an = rr(0, TAU), sp = rr(1.5, 5); emit(e.parts, { kind: 'petal', x: e.S.x, y: e.S.y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp, rot: an, vr: 0.1, size: rr(3, 6), col: pick(PINKS), life: 60, max: 60 }); } }
+        },
+        back(e, p) { wash('#ff9ecb', 0.14 * sstep(0, 0.2, p)); },
+        front(e, p) { drawParts(e.parts); if (e.go) { const q = p - this.A; ring(e.S.x, e.S.y, q * W() * 1.4, 1 - q * 5, '#ffd6e8', 3); } }
+    };
+
+    const X1 = { // PICOS HELADOS: la ventisca se congela alrededor y la nave despega entre esquirlas de hielo
+        dur: 160, col: '#eaf6ff', A: 0.22, B: 0.78,
+        init(e) { e.fr = Array.from({ length: 90 }, Math.random); },
+        pose(e, p) { return riseTo(e, p, this.A, this.B); },
+        step(e, p) {
+            const ps = this.pose(e, p);
+            if (p >= this.A) emit(e.parts, { kind: 'streak', x: rr(0, W()), y: -10, vx: rr(-1, 1), vy: rr(14, 24), size: 1.4, lw: 1.3, col: '#eaf6ff', life: 40, max: 40, alpha: 0.7 * (1 - sstep(0.7, 0.85, p)) });
+            if (p >= this.A && p < this.B && e.t % 2 === 0) emit(e.parts, { kind: 'shard', x: ps.x + rr(-6, 6), y: ps.y + 14, vx: rr(-1, 1), vy: rr(2, 5), g: 0.1, rot: rr(0, TAU), vr: rr(-0.2, 0.2), size: rr(2, 4), col: '#cfeaff', life: 40, max: 40 });
+            if (!e.go && p >= this.A) { e.go = 1; shake(8); for (let i = 0, n = lite() ? 10 : 22; i < n; i++) { const an = -Math.PI * rr(0.05, 0.95), sp = rr(2, 6); emit(e.parts, { kind: 'shard', x: e.S.x, y: e.S.y + 10, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp, g: 0.14, rot: rr(0, TAU), vr: rr(-0.3, 0.3), size: rr(3, 6), col: '#eaf6ff', life: 50, max: 50 }); } }
+        },
+        back(e, p) { wash('#79b8ff', 0.12 * sstep(0, 0.25, p)); },
+        front(e, p) { drawParts(e.parts); frostEdges(e.fr, sstep(0.45, 0.95, p) * 0.9); }
+    };
+
+    const X2 = { // LAGO ESPECTRAL: la nave sale del agua entre ondas y burbujas que suben
+        dur: 170, col: '#bff5ea', A: 0.25, B: 0.8,
+        init(e) { e.rip = []; },
+        pose(e, p) { return riseTo(e, p, this.A, this.B, Math.sin(p * 40) * 5 * sstep(this.A, this.A + 0.1, p)); },
+        step(e, p) {
+            const ps = this.pose(e, p);
+            if (e.t % (lite() ? 3 : 2) === 0) emit(e.parts, { kind: 'bubble', x: rr(0, W()), y: H() + 6, vx: rr(-0.2, 0.2), vy: -rr(1, 3), size: rr(2, 6), col: '#8ff0e0', life: 120, max: 120 });
+            if (p < this.B && e.t % 3 === 0) emit(e.parts, { kind: 'bubble', x: ps.x + rr(-10, 10), y: ps.y + 16, vx: rr(-0.4, 0.4), vy: -rr(0.5, 1.5), size: rr(1.5, 3.5), col: '#d8fff8', life: 40, max: 40 });
+            if (p < this.B && e.t % 14 === 0) e.rip.push({ x: ps.x, y: ps.y + 16, r: 4, a: 0.85 });
+            e.rip.forEach(r => { r.r += 2.4; r.a -= 0.022; }); e.rip = e.rip.filter(r => r.a > 0);
+            if (!e.go && p >= this.A) { e.go = 1; shake(6); }
+        },
+        back(e, p) { wash('#164a4f', 0.2 * sstep(0, 0.2, p)); waterWarp(sstep(0.1, 0.35, p) * (1 - sstep(0.75, 0.95, p)) * 7, e.t); },
+        front(e, p) { e.rip.forEach(r => ring(r.x, r.y, r.r, r.a, '#bff5ea', 2, r.r * 0.32)); drawParts(e.parts); }
+    };
+
+    const X3 = { // BOSQUE ENCANTADO: las luciérnagas envuelven la nave, se vuelve esfera de luz y sube; las raíces cierran la pantalla
+        dur: 175, col: '#d8ffc9', A: 0.3, B: 0.82,
+        init(e) { e.vines = makeVines(); },
+        pose(e, p) {
+            const r = riseTo(e, p, this.A, this.B), orb = sstep(0.08, this.A, p);
+            r.sx *= 1 - 0.4 * orb; r.sy *= 1 - 0.4 * orb; r.a = 1 - sstep(0.55, 0.72, p); return r;
+        },
+        step(e, p) {
+            const ps = this.pose(e, p), r = riseTo(e, p, this.A, this.B);
+            if (p < this.A && e.t % 2 === 0) { const x = Math.random() < 0.5 ? rr(-10, 0) : rr(W(), W() + 10), y = rr(0, H()); emit(e.parts, { kind: 'glow', x, y, vx: (ps.x - x) * 0.035, vy: (ps.y - y) * 0.035, size: rr(1.5, 3), col: '#a6ff8f', life: 40, max: 40 }); }
+            if (p >= this.A && p < this.B) {
+                if (e.t % 2 === 0) emit(e.parts, { kind: 'glow', x: r.x + rr(-8, 8), y: r.y + 12, vx: rr(-0.6, 0.6), vy: rr(0.5, 1.6), size: rr(1.5, 3), col: '#a6ff8f', life: 50, max: 50 });
+                if (e.t % 4 === 0) emit(e.parts, { kind: 'leaf', x: r.x + rr(-10, 10), y: r.y + 14, vx: rr(-1, 1), vy: rr(1, 2.4), rot: rr(0, TAU), vr: rr(-0.2, 0.2), size: rr(3, 5), col: '#6fcf55', life: 50, max: 50 });
+            }
+            if (!e.go && p >= this.A) { e.go = 1; shake(6); }
+        },
+        back(e, p) { wash('#1f3a24', 0.25 * sstep(0, 0.2, p)); },
+        front(e, p) {
+            const r = riseTo(e, p, this.A, this.B), orb = sstep(0.08, this.A, p) * (1 - sstep(0.82, 0.95, p));
+            drawVines(e.vines, sstep(0.4, 0.95, p), '#2b5a24', '#4c9a3a');
+            drawParts(e.parts);
+            if (orb > 0.01) { glow(r.x, r.y, 22 + 30 * orb, 'rgba(166,255,143,' + (0.85 * orb).toFixed(2) + ')', 'rgba(166,255,143,0)'); ctx.save(); ctx.globalAlpha = orb; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(r.x, r.y, 5 * orb + 1, 0, TAU); ctx.fill(); ctx.restore(); }
+        }
+    };
+
+    const X4 = { // BIBLIOTECA ARCANA: círculo rúnico, columna de luz y teletransporte hacia arriba entre páginas
+        dur: 180, col: '#fff1cf', A: 0.3, B: 0.8,
+        pose(e, p) { const r = riseTo(e, p, this.A, this.B), th = sstep(this.A + 0.08, this.B, p); r.sx *= 1 - 0.6 * th; r.sy *= 1 + 0.9 * th; return r; },
+        step(e, p) {
+            if (p > 0.05 && p < this.B && e.t % 3 === 0) { const an = rr(0, TAU); emit(e.parts, { kind: 'page', x: e.S.x + Math.cos(an) * W() * 0.2, y: e.S.y + 8 + Math.sin(an) * 14, vx: -Math.sin(an) * 1.2, vy: -rr(2, 4.5), rot: rr(0, TAU), vr: rr(-0.15, 0.15), size: rr(5, 8), col: '#f4e4bf', life: 70, max: 70 }); }
+            if (!e.go && p >= this.A) { e.go = 1; shake(7); e.flash = 1; }
+            if (e.flash) e.flash = Math.max(0, e.flash - 0.06);
+        },
+        back(e, p) {
+            const env = sstep(0, 0.15, p) * (1 - sstep(0.85, 1, p));
+            wash('#2a1d10', 0.3 * env);
+            const w = (14 + 26 * sstep(this.A, this.B, p)) * sstep(0.1, this.A, p), g = ctx.createLinearGradient(0, 0, 0, H());
+            g.addColorStop(0, 'rgba(255,241,207,0.55)'); g.addColorStop(1, 'rgba(255,241,207,0)');
+            ctx.save(); ctx.globalAlpha = 0.6 * env; ctx.fillStyle = g; ctx.fillRect(e.S.x - w / 2, 0, w, H()); ctx.restore();
+        },
+        front(e, p) {
+            const rx = Math.min(W() * 0.24, 110), g = sstep(0, 0.22, p) * (1 - sstep(0.55, 0.7, p));
+            magicCircle(e.S.x, e.S.y + 14, rx, rx * 0.34, g, e.t * 0.03, '#e8c98a');
+            drawParts(e.parts);
+            if (e.flash) wash('#fff1cf', e.flash * 0.35);
+        }
+    };
+
+    const X5 = { // TORRE DEL RELOJ: la nave sube a "ticks" de reloj mientras la esfera gira hasta las 12
+        dur: 190, col: '#ffe9a8', A: 0.2, B: 0.8, N: 6,
+        pose(e, p) {
+            const s = e.S, N = this.N, DT = (this.B - this.A) / N;
+            let kf = 0; for (let i = 0; i < N; i++) kf += eOut(prog(this.A + i * DT, this.A + i * DT + DT * 0.3, p));
+            const k = kf / N;
+            return { x: lerp(s.x, W() / 2, k * 0.6), y: lerp(s.y, -110, k), sy: 1 + 0.2 * k, thrust: 1.2, a: 1 };
+        },
+        step(e, p) {
+            const ps = this.pose(e, p), DT = (this.B - this.A) / this.N, ti = Math.floor((p - this.A) / DT);
+            if (ti >= 0 && ti < this.N && ti !== e.ti) {
+                e.ti = ti; (e.rings = e.rings || []).push({ x: ps.x, y: ps.y, r: 4, a: 1 });
+                for (let i = 0; i < 10; i++) { const an = rr(0, TAU), sp = rr(1.5, 4.5); emit(e.parts, { kind: 'dot', x: ps.x, y: ps.y, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp, g: 0.06, size: rr(2, 3.5), col: pick(['#ffcf5c', '#fff', '#ff9a2c']), life: 28, max: 28 }); }
+                shake(3);
+            }
+            if (!e.end && p >= 0.88) { e.end = 1; shake(8); e.flash = 1; }
+            if (e.flash) e.flash = Math.max(0, e.flash - 0.05);
+            (e.rings || []).forEach(r => { r.r += 3; r.a -= 0.05; }); if (e.rings) e.rings = e.rings.filter(r => r.a > 0);
+        },
+        back(e, p) {
+            const env = sstep(0, 0.15, p) * (1 - sstep(0.9, 1, p)), r = Math.min(W() * 0.45, H() * 0.3);
+            wash('#2a1a08', 0.3 * env);
+            clockFace(W() / 2, H() * 0.38, r, -Math.PI / 2 + TAU * 3 * eOut(prog(0.05, 0.85, p)), '#ffcf5c', 0.35 * env);
+            gear(W() * 0.06, H() * 0.18, 46, 12, e.t * 0.03, '#8a6a2a', 0.45 * env);
+            gear(W() * 0.94, H() * 0.42, 38, 10, -e.t * 0.036, '#8a6a2a', 0.45 * env);
+            gear(W() * 0.08, H() * 0.7, 30, 8, e.t * 0.04, '#8a6a2a', 0.4 * env);
+        },
+        front(e, p) { drawParts(e.parts); (e.rings || []).forEach(r => ring(r.x, r.y, r.r, r.a, '#ffcf5c', 2)); if (e.flash) wash('#ffe9a8', e.flash * 0.45); }
+    };
+
+    const X6 = { // LUNA SANGRANTE: la nave vuela hacia la luna roja y entra en ella entre murciélagos y relámpagos
+        dur: 190, col: '#c4162e', A: 0.22, B: 0.8,
+        init(e) { e.bats = []; for (let i = 0, n = lite() ? 10 : 24; i < n; i++) e.bats.push({ x: rr(-W(), W()), y: rr(H() * 0.05, H() * 0.7), v: rr(2.5, 5.5), s: rr(8, 16), ph: rr(0, TAU) }); },
+        pose(e, p) {
+            const s = e.S, M = { x: W() / 2, y: H() * 0.2 }, k = eIn(prog(this.A, this.B, p));
+            return { x: lerp(s.x, M.x, sstep(this.A, this.B, p)) + Math.sin(p * 30) * 8 * k, y: lerp(s.y, M.y, k), sx: lerp(1, 0.12, k), a: 1 - sstep(0.74, 0.8, p), thrust: 1.6, rot: Math.sin(p * 14) * 0.2 * k };
+        },
+        step(e, p) {
+            const ps = this.pose(e, p);
+            e.bats.forEach(b => { b.x += b.v; b.ph += 0.28; b.y += Math.sin(b.ph * 0.4) * 0.8; if (b.x > W() + 30) { b.x = -30; b.y = rr(H() * 0.05, H() * 0.7); } });
+            if (p >= this.A && p < this.B && e.t % 3 === 0) emit(e.parts, { kind: 'blood', x: ps.x + rr(-6, 6), y: ps.y + 12, vx: rr(-0.6, 0.6), vy: rr(0.5, 2), g: 0.12, size: rr(2, 3.5), col: '#ff2d4a', life: 40, max: 40 });
+            if (!e.go && p >= this.A) { e.go = 1; e.flash = 1; shake(7); }
+            if (!e.end && p >= 0.8) { e.end = 1; e.flash = 1; shake(10); }
+            if (e.flash) e.flash = Math.max(0, e.flash - 0.07);
+        },
+        back(e, p) {
+            const env = sstep(0, 0.2, p) * (1 - sstep(0.9, 1, p)), M = { x: W() / 2, y: lerp(-H() * 0.2, H() * 0.2, eOut(prog(0, 0.3, p))) };
+            wash('#08010a', 0.5 * env);
+            const r = Math.min(W() * 0.34, 150) * (1 + 0.25 * sstep(this.A, this.B, p));
+            glow(M.x, M.y, r * 2.2, 'rgba(255,40,60,' + (0.4 * env).toFixed(2) + ')', 'rgba(120,0,20,0)');
+            ctx.save(); ctx.globalAlpha = env; ctx.fillStyle = '#c4162e'; ctx.beginPath(); ctx.arc(M.x, M.y, r, 0, TAU); ctx.fill();
+            ctx.fillStyle = 'rgba(80,0,12,0.5)'; ctx.beginPath(); ctx.arc(M.x - r * 0.3, M.y - r * 0.2, r * 0.18, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.arc(M.x + r * 0.35, M.y + r * 0.25, r * 0.25, 0, TAU); ctx.fill(); ctx.restore();
+        },
+        front(e, p) { e.bats.forEach(b => drawBat(b.x, b.y, b.s, b.ph)); drawParts(e.parts); if (e.flash) wash('#ff3050', e.flash * 0.4); }
+    };
+
+    const XS = [X0, X1, X2, X3, X4, X5, X6];
+
+    function startExit(lv, done) {
+        lv = clamp(lv | 0, 0, XS.length - 1);
+        const sc = XS[lv], pl = (typeof player !== 'undefined' && player) ? player : null;
+        const S = pl ? { x: pl.x + pl.width / 2, y: pl.y + pl.height / 2 } : rest();
+        ex = { lv, sc, t: 0, dur: sc.dur, S, parts: [], done: done || function () {} };
+        if (sc.init) sc.init(ex);
+        veil = null;
+        return sc.dur;
+    }
+    function drawExit() {
+        if (!ex) return;
+        const e = ex, sc = e.sc;
+        e.t++;
+        if (typeof keys !== 'undefined' && keys['Enter'] && e.t > 24 && !e.sk && e.t < e.dur * 0.85) { e.sk = 1; e.t = Math.floor(e.dur * 0.85); }
+        const p = clamp(e.t / e.dur, 0, 1);
+        stepParts(e.parts);
+        sc.step && sc.step(e, p);
+        ctx.save(); sc.back && sc.back(e, p); ctx.restore();
+        drawShip(sc.pose(e, p));
+        ctx.save(); sc.front && sc.front(e, p); ctx.restore();
+        vignette(0.5 * sstep(0, 0.12, p));
+        bars(sstep(0, 0.1, p), 0.07);
+        hint(sstep(0.1, 0.2, p) * (1 - sstep(0.8, 0.9, p)));
+        wash(sc.col, sstep(0.66, 0.97, p));
+        if (p >= 1) {
+            const d = e.done; veil = { col: sc.col, a: 1, hold: 0 }; ex = null;
+            try { d(); } catch (err) { console.error(err); }
+        }
+    }
+    // fundido que sigue tapando la pantalla tras la salida hasta que arranca la llegada del nivel nuevo
+    function drawVeil() {
+        if (!veil) return;
+        veil.hold++;
+        if (arr || veil.hold > 150) veil.a -= 0.04;
+        if (veil.a <= 0) { veil = null; return; }
+        wash(veil.col, veil.a);
+    }
+
+    // ==================================================================
     //  2) TRANSICIÓN AL MUNDO RETRO (la llama extras.js durante el warp)
     // ==================================================================
     const pxc = document.createElement('canvas'), pxg = pxc.getContext('2d');
@@ -8078,15 +8432,18 @@ const Cine = (function () {
         BOSS_CARDS,
         startLevel,
         arrivalActive() { return !!arr; },
-        hidesPlayer() { return !!arr && !drawing; },
+        hidesPlayer() { return (!!arr || !!ex) && !drawing; },
+        startExit, drawExit, drawVeil,
+        exitActive() { return !!ex; },
         cardReady() { return !!arr && arr.t / arr.dur >= 0.5; },
         drawArrival,
         retroGlitch,
         bossIntroStep, bossTransform, bossHidden, drawBossBack, drawBossFront,
         bossIntroDur: BI_DUR,
-        reset() { arr = null; },
+        reset() { arr = null; ex = null; veil = null; },
         dev: {
             arrival(lv) { if (typeof isPlaying !== 'undefined' && isPlaying) startLevel(lv, false); },
+            exit(lv) { if (typeof isPlaying !== 'undefined' && isPlaying) startExit(lv, function () { startLevel(lv, false); }); },
             boss(lv) {
                 if (typeof isPlaying === 'undefined' || !isPlaying) return;
                 enemies = []; enemyBullets = []; if (window.WaveAttacks) WaveAttacks.reset(); activeMiniBoss = null; currentWave = clamp(lv, 0, 6) + 1; initLevelTheme(currentWave);
@@ -14271,6 +14628,7 @@ const TouhouUI = (function () {
         { id: 'score', label: 'Puntajes', cap: 'Ranking de pilotos y misiones diarias.' },
         { id: 'shop', label: 'Tienda', cap: 'Skins con tus gemas.' },
         { id: 'option', label: 'Opciones', cap: 'Controles, pantalla y rendimiento.' },
+        { id: 'install', label: 'Descargar app', cap: 'Instálalo en tu teléfono: pantalla completa, como una app.' },     // v43 (se quita solo si ya está instalado)
         { id: 'quit', label: 'Salir', cap: 'Volver al título.' }
     ];
     const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -14280,6 +14638,7 @@ const TouhouUI = (function () {
     const toast = el('div'); toast.id = 'thToast';
     const foot = el('div', null, '<b>↑↓</b> Mover &nbsp; <b>Z / Enter</b> Aceptar &nbsp; <b>X / Esc</b> Volver &nbsp;·&nbsp; En juego: <b>←↑↓→</b> mover · <b>Espacio</b> disparo · <b>Z</b> bomba · <b>Shift</b> lento'); foot.id = 'thFoot';
     const skip = el('div', null, 'PRESIONA UNA TECLA'); skip.id = 'thSkip';
+    try { if (window.InstallApp && window.InstallApp.isInstalled()) ITEMS.splice(ITEMS.findIndex(it => it.id === 'install'), 1); } catch (e) {}   // v43: ya instalado → no hace falta la opción
     ITEMS.forEach((it, i) => {
         const b = el('button', 'th-item', it.label); b.type = 'button'; b.style.setProperty('--i', i); b.setAttribute('data-act', it.id);
         b.addEventListener('mouseenter', () => { if (screen === 'main') setIdx(i, true); });
@@ -14615,6 +14974,7 @@ const TouhouUI = (function () {
         if (id === 'score') return show('score');
         if (id === 'shop') { const b = $('btnShop'); if (b) b.click(); else toastMsg('La tienda no está disponible.'); return; }
         if (id === 'option') { const b = $('btnOptionsToggle'); if (b) b.click(); return; }
+        if (id === 'install') { if (window.InstallApp) window.InstallApp.open(); else toastMsg('La instalación no está disponible (falta instalar.js).'); return; }
         if (id === 'quit') return doQuit();
     }
     function it0shake() { const b = ITEMS[1].btn; b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); }

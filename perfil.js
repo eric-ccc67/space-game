@@ -200,9 +200,9 @@ const Perfil = (function () {
             st.busy = false; st.saved = true; inp.readOnly = true;
             const sv = $('pfSave'); sv.disabled = false; sv.textContent = 'CONTINUAR';
             $('pfSkip').style.display = 'none';
-            // v39: tras PERDER del todo (FIN DEL JUEGO), en cuanto se guarda el nombre y el puntaje se vuelve SOLO al menú
+            // v39: tras PERDER del todo (FIN DEL JUEGO) o tras GANAR (Invasor / jefe del reloj), en cuanto se guarda el nombre y el puntaje se vuelve SOLO al menú
             // principal (no se reinicia el nivel 1). El Modo Infinito no cuenta: allí sigue el botón CONTINUAR de siempre.
-            if (st.kind === 'death' && !(typeof currentMode !== 'undefined' && currentMode === 'infinito')) {
+            if ((st.kind === 'death' || st.kind === 'win' || st.kind === 'clear') && !(typeof currentMode !== 'undefined' && currentMode === 'infinito')) {
                 sv.textContent = 'IR AL MENÚ';
                 const mine = st;
                 setTimeout(() => { if (st === mine && st.saved) close(); }, 1800);

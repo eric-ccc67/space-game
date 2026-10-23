@@ -147,6 +147,7 @@
     function frozen() {
         try {
             if (typeof Cine !== 'undefined' && Cine.arrivalActive && Cine.arrivalActive()) return true;
+            if (typeof Cine !== 'undefined' && Cine.exitActive && Cine.exitActive()) return true;
             if (window.Choque && Choque.active && Choque.active()) return true;
             if (Extras.busy && Extras.busy()) return true;
             if (gameStartTimer > 0 || reviveAnim || levelCompleteActive) return true;
