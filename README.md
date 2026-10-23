@@ -661,3 +661,6 @@ Ajustes rápidos: vida del jefe → `this.maxHp` en `InvaderBoss`; duración de 
 Toca **50 veces la nave del menú principal** (con pausas menores a 3 s entre toques) y se desbloquea el Modo Práctica
 con los 7 niveles, sin tener que pasarte el juego. A partir del toque 10 aparece un aviso con los toques que faltan.
 Se guarda en `localStorage` (`sg_practice_v1`). En la pantalla de práctica eliges nave con el hangar, como siempre.
+
+## v46 · Eventos especiales por fase (`eventos_fase.js`)
+Un evento único e interactivo por nivel, una vez por oleada (≈23 s, sin jefes): 1 Fuegos fatuos · 2 Alud · 3 Burbuja de aire · 4 Telaraña · 5 Almas errantes · 6 Temblor · 7 La mirada. Premio: escudo + puntos. Sin balas nuevas, sin sombras, casi 0 coste fuera del evento. Consola: `FaseEvents.force(1..7)`, `FaseEvents.stop()`, `FaseEvents.cfg.enabled=false`.

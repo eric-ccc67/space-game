@@ -434,9 +434,6 @@
         .action-btn.pressed { transform: scale(0.92); opacity: 1; filter: brightness(1.4); }
         #btnShoot { width: calc(var(--mc-u) * 1.25); height: calc(var(--mc-u) * 1.25); background: radial-gradient(circle at 35% 30%, rgba(120,255,120,0.55), rgba(0,170,0,0.45)); border: 3px solid rgba(150,255,150,0.8); }
         #btnBomb { width: calc(var(--mc-u) * 0.98); height: calc(var(--mc-u) * 0.98); background: radial-gradient(circle at 35% 30%, rgba(255,120,120,0.5), rgba(190,0,0,0.45)); border: 3px solid rgba(255,140,140,0.8); margin-bottom: calc(var(--mc-u) * 0.55); }
-        #btnFocus { width: calc(var(--mc-u) * 0.78); height: calc(var(--mc-u) * 0.78); background: radial-gradient(circle at 35% 30%, rgba(190,160,255,0.5), rgba(90,50,200,0.45)); border: 3px solid rgba(200,180,255,0.8); margin-bottom: calc(var(--mc-u) * 0.3); }
-        #btnFocus b { font-size: calc(var(--mc-u) * 0.17); }
-        #mobileControls.focus-on #btnFocus { box-shadow: 0 0 18px #b9a0ff; }
         #btnAuto { width: calc(var(--mc-u) * 0.78); height: calc(var(--mc-u) * 0.42); border-radius: 999px; font-size: calc(var(--mc-u) * 0.15); background: rgba(40,40,60,0.55); border: 2px solid rgba(255,255,255,0.45); }
         #btnAuto.on { background: rgba(255,210,60,0.6); border-color: #ffe27a; color: #2a1c00; text-shadow: none; }
         #btnPause {
@@ -954,7 +951,6 @@
         <div id="mcRight">
             <button id="btnAuto" aria-label="Disparo automático">AUTO</button>
             <div class="action-buttons">
-                <div class="action-btn" id="btnFocus"><b>SLOW</b><i>PRECISO</i></div>
                 <div class="action-btn" id="btnBomb"><b>B</b><i>BOMBA</i></div>
                 <div class="action-btn" id="btnShoot"><b>A</b><i>DISPARO</i></div>
             </div>
@@ -1001,6 +997,8 @@
 <script src="especiales.js"></script>   <!-- v39: enemigos especiales (ataque x1.25 / gemas) -->
 <script src="skins_fx.js"></script>    <!-- v39: efectos únicos por skin -->
 <script src="skins_retro.js"></script>  <!-- v44: skins retro 70s/80s (nave + disparo + sonido únicos) en las 4 naves principales -->
+<script src="fondo_jefes.js"></script>  <!-- v46: fondo especial al aparecer mini jefes y jefes -->
+<script src="eventos_fase.js"></script>  <!-- v46: evento especial único e interactivo por cada fase (niveles 1-7) -->
 <script>
     // Botones de Modo y Dificultad: son una cara nueva para los <select> originales.
     // Al pulsar uno se actualiza el select y se dispara su evento "change" (el juego lee ese valor).

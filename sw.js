@@ -4,7 +4,7 @@
    - Música, imágenes e iconos: caché primero.
    - NUNCA se guarda el ranking (api.php / api/*).
    Para forzar que todos descarguen una versión nueva, cambia CACHE. */
-const CACHE = 'space-game-v45';
+const CACHE = 'space-game-v47';
 const CORE = [
     './', 'index.html', 'manifest.webmanifest',
     'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png',
@@ -14,6 +14,8 @@ const CORE = [
     "combo.js",
     "especiales.js",
     "eventos_jefes.js",
+    "fondo_jefes.js",
+    "eventos_fase.js",
     "hud_tarjetas.js",
     "ia_adaptativa.js",
     "invasor.js",
