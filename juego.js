@@ -5038,6 +5038,7 @@ function gameLoopFrame() {
     
     if (currentMode !== 'clasico') {
         drawThemeBackground();
+        if (window.FondoJefes) { try { FondoJefes.draw(); } catch (e) {} }   // v46: escenario propio al aparecer mini jefe / jefe
         if (activeBoss) {
             drawBossAlertOverlay(activeBoss);
         }
@@ -13081,7 +13082,7 @@ window.ShipFX = ShipFX;
 const $ = id => document.getElementById(id);
 if (!('keys' in window) && typeof keys !== 'undefined') Object.defineProperty(window, 'keys', { get() { return keys; } });
 const root = $('mobileControls'), catchEl = $('joyCatch'), dock = $('joystickZone'), base = $('joystickBase'), stick = $('joystickStick');
-const bA = $('btnShoot'), bB = $('btnBomb'), bF = $('btnFocus'), bAuto = $('btnAuto'), bPause = $('btnPause');
+const bA = $('btnShoot'), bB = $('btnBomb'), bAuto = $('btnAuto'), bPause = $('btnPause');
 if (!root || !catchEl) return;
 
 // ---------------------------------------------------------------- estado compartido con game.js
@@ -13178,7 +13179,6 @@ hold(bB, () => {
     const ready = bB.classList.contains('bomb-ready');
     if (playing()) { try { useBomb(); } catch (e) {} } if (ready) vibrate([40, 30, 80]);
 }, () => { if (window.keys) window.keys['KeyZ'] = false; });
-hold(bF, () => { TI.focus = true; root.classList.add('focus-on'); vibrate(6); }, () => { TI.focus = false; root.classList.remove('focus-on'); });
 bAuto.addEventListener('pointerdown', e => { e.preventDefault(); P.auto = !P.auto; if (optEls.auto) optEls.auto.checked = P.auto; savePrefs(); applyPrefs(); vibrate(10); });
 
 // ---------------------------------------------------------------- PAUSA (congela Date.now, música y bucle)
