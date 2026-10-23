@@ -1,7 +1,19 @@
+## v44
+- **Skins RETRO 70s/80s** (`skins_retro.js`, nuevo): cada una de las **4 naves principales** (Tanque, Sniper, Ligera y Omega) tiene su skin retro propia, con **otro dibujo de nave, otro disparo y otro sonido**. Solo cambia el aspecto y el sonido: daño, cadencia y hitboxes no se tocan.
+  - **Nave 1 · Tanque → CAÑON INVASOR 78** (homenaje a *Space Invaders*): cañón de fósforo verde con líneas de barrido y orugas animadas; dispara el **zigzag** de los invasores.
+  - **Nave 2 · Sniper → VECTOR ROCA 79** (homenaje a *Asteroids*): nave de líneas vectoriales con llama parpadeante; el disparo normal es un **punto brillante** y el disparo cargado una **lanza vectorial**.
+  - **Nave 3 · Ligera → CAZA ESTELAR 81** (homenaje a *Galaga*): caza blanco/rojo/azul con llama; dispara **rayos gemelos** de punta roja y cola azul.
+  - **Nave 4 · Omega → COMECOCOS 80** (homenaje a *Pac-Man*): disco amarillo con vainas azules y escape de los 4 fantasmas; su bala es un **comecocos que mastica** y deja un rastro de bolitas (sigue borrando las balas enemigas, como siempre).
+- Se compran en la **TIENDA ESTELAR → pestaña RETRO 70s/80s** (400 / 450 / 500 / 600 gemas), con vista previa animada. El botón alterna **EQUIPAR / QUITAR** por nave; si quitas la skin vuelves a la nave normal. Una skin retro equipada manda sobre las skins de color de la nave.
+- Funciona en los modos **Moderno** e **Infinito**. Se guarda en `localStorage` (`sg_retro_skins_v1`). Consola: `RetroSkins.dev.unlockAll()` · `RetroSkins.dev.reset()` · `Shop.dev.gems(5000)`.
+- Cambios en archivos existentes: `juego.js` (pestaña RETRO en la tienda, 3 retoques en el bloque *shop.js*), `index.html` (carga `skins_retro.js`), `sw.js` (caché v45 + archivo nuevo).
+
 ## v43
 - **Adiós a la ventana de "SEGUIR"**: al vencer a un jefe ya no hay que dispararle a un botón. Arriba aparece una **flecha animada** (chevrones en cascada, haz de luz y chispas con el color del nivel, que late más fuerte según te acercas) que te señala hacia arriba. Mientras tanto puedes recoger los ítems que soltó el jefe.
 - **Cinemática de salida por nivel** (`Cine.startExit`, en `cinematicas`): al subir la nave hasta la flecha suena una cinemática distinta en cada uno de los 7 niveles (torbellino de pétalos, despegue entre hielo, salida del agua, esfera de luciérnagas, columna rúnica, ascenso a "ticks" de reloj, vuelo hacia la luna roja) que termina en un fundido de color; luego eliges poder y llega la nave al nivel siguiente. ENTER salta la cinemática. Consola: `Cine.dev.exit(0..6)`.
 - **Final directo al menú**: al vencer al **Invasor** (Lunático) o al **jefe del reloj en modo normal** (Moderno, dificultades no lunáticas) sale la pantalla de nombre, se guarda y, sin pulsar nada más, vuelves al menú (`perfil.js`).
+- **Nuevo nombre: SCARLET STARFALL (紅星降臨)** — sustituye a "Space Game" en el título animado del menú, el sello de kanji, el emblema del HUD, la pestaña del navegador, la app instalable y el pie. La tarjeta de inicio ahora dice "PROYECTO ESCARLATA presenta". Portada horizontal 1920×1080 en `portada.png`.
+- **Arreglo: juego congelado al usar la bomba cuando el jefe muere** (`Cannot read properties of null (reading 't')`): la bomba de la nave Tanque (y las demás) podía matar al jefe a mitad de su efecto; al llegar a 0 de vida el jefe arranca el *choque de poderes*, que cancelaba la bomba por dentro y la dejaba en `null`. Ahora esa cancelación espera a que termine el cuadro de la bomba (`BombFX`). Además el bucle principal tiene una **red de seguridad**: si un cuadro falla, se anota en la consola y el juego continúa en lugar de congelarse (si el mismo error se repite 90 cuadros seguidos, sale el aviso rojo como antes).
 - **Descargar app (teléfono)**: nueva opción **Descargar app** en el menú principal. Convierte el juego en app instalable (PWA: `manifest.webmanifest`, `sw.js`, `instalar.js`, carpeta `icons/`). En Android/Chrome se instala con un toque; en iPhone y otros navegadores sale una ventana con los pasos exactos (y un botón para copiar el enlace). Una vez instalada se abre a pantalla completa desde su icono, también sin conexión (el ranking sí necesita internet), y la opción desaparece del menú. Requiere https (Vercel ya lo da). Al subir una versión nueva, cambia `CACHE` en `sw.js`.
 - **Escena de la moneda del mini jefe**: al caer un mini jefe el juego se congela 2 segundos; aparece una moneda que gira, sube hasta un contador de **MONEDAS n/7** arriba y rellena su casilla (con destello y sonido). Si ya tienes las 7 se muestra igual, sin sumar; en el Modo Práctica (sin monedas) solo hay la pausa corta de antes. Ajustable con `COIN_CINE_MS` (juego.js).
 
@@ -203,7 +215,7 @@ Las pistas están en `musica/` (ver `musica/LEEME.txt`): `nivelN_oleada.mp3` (ol
 
 ---
 
-# Space Game — Cómo correrlo en localhost y ver la tabla de puntajes
+# Scarlet Starfall — Cómo correrlo en localhost y ver la tabla de puntajes
 
 Este juego usa PHP + MySQL para guardar los puntajes, así que **no se puede
 abrir con doble clic** (eso abre el archivo como `file:///...` y ahí PHP no

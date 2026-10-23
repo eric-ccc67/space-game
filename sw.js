@@ -1,10 +1,10 @@
-/* Space Game · service worker (v43)
+/* Scarlet Starfall · service worker (v43)
    - Guarda el juego en el teléfono para poder abrirlo sin conexión (la música y el ranking necesitan haberse cargado antes / conexión).
    - HTML, JS y CSS: red primero (así las actualizaciones llegan solas) y caché si no hay red.
    - Música, imágenes e iconos: caché primero.
    - NUNCA se guarda el ranking (api.php / api/*).
    Para forzar que todos descarguen una versión nueva, cambia CACHE. */
-const CACHE = 'space-game-v43';
+const CACHE = 'space-game-v45';
 const CORE = [
     './', 'index.html', 'manifest.webmanifest',
     'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png',
@@ -32,6 +32,7 @@ const CORE = [
     "naves_fx.js",
     "perfil.js",
     "skins_fx.js",
+    "skins_retro.js",
     "spawn_director.js",
     'musica/menu.mp3'
 ];

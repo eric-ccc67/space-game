@@ -1,19 +1,48 @@
 {
-  "name": "Space Game",
-  "short_name": "Space Game",
+  "name": "Scarlet Starfall",
+  "short_name": "Starfall",
   "description": "Shoot 'em up espacial: oleadas, mini jefes, jefes finales y 7 niveles.",
   "lang": "es",
   "start_url": "./index.html",
   "scope": "./",
   "id": "./index.html",
   "display": "fullscreen",
-  "display_override": ["fullscreen", "standalone"],
+  "display_override": [
+    "fullscreen",
+    "standalone"
+  ],
   "background_color": "#05101c",
   "theme_color": "#05101c",
-  "categories": ["games"],
+  "categories": [
+    "games"
+  ],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "portada.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Scarlet Starfall"
+    }
   ]
 }

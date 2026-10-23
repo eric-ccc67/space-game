@@ -4677,7 +4677,7 @@ function drawStarIcon(cx, cy, r, color) {
     ctx.closePath(); ctx.fill();
 }
 
-// Logo/emblema con el nombre "space game" traducido al japonés (スペースゲーム),
+// Logo/emblema con el nombre "Scarlet Starfall" en japonés (紅星降臨 · スカーレット・スターフォール),
 // inspirado en el sello circular que los juegos de Touhou muestran en su HUD.
 function drawJapaneseEmblem(uiX, uiW, panelH) {
     let cx = uiX + uiW / 2;
@@ -4690,14 +4690,14 @@ function drawJapaneseEmblem(uiX, uiW, panelH) {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#fff';
     ctx.font = `${Math.max(9, r*0.42)}px serif`;
-    ctx.fillText('宇宙', cx, cy - r*0.12);
-    ctx.fillText('遊戯', cx, cy + r*0.5);
+    ctx.fillText('紅星', cx, cy - r*0.12);
+    ctx.fillText('降臨', cx, cy + r*0.5);
     ctx.restore();
 
     ctx.textAlign = 'center';
     ctx.fillStyle = '#89a';
     ctx.font = `${Math.max(6, uiW * 0.032)}px "Press Start 2P"`;
-    ctx.fillText('スペースゲーム', cx, panelH - 20);
+    ctx.fillText('スカーレット・スターフォール', cx, panelH - 20);
     ctx.textAlign = 'left';
 }
 
@@ -4990,19 +4990,36 @@ function drawBulletBox(b) {
     } catch (e) {}
 }
 
+// v43: red de seguridad del bucle principal. Antes, cualquier error dentro de un cuadro (p. ej. una bomba que mataba al jefe a
+// mitad de efecto) cortaba el bucle: todo se quedaba congelado y solo funcionaban los botones del menú. Ahora el error se
+// anota en la consola, se cancelan los efectos que suelen causarlo y el juego sigue en el cuadro siguiente.
+let __loopSched = false, __loopErrN = 0;
+function __nextFrame() { __loopSched = true; requestAnimationFrame(gameLoop); }
 function gameLoop() {
+    __loopSched = false;
+    try { gameLoopFrame(); __loopErrN = 0; }
+    catch (err) {
+        console.error('[gameLoop] error recuperado:', err);
+        try { if (window.BombFX) BombFX.reset(); bombEffect.active = false; } catch (e) {}
+        try { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0; } catch (e) {}
+        if (++__loopErrN > 90) throw err;                  // error que no se arregla solo (90 cuadros seguidos): sale el aviso rojo como antes
+        if (!__loopSched) __nextFrame();
+    }
+}
+
+function gameLoopFrame() {
     if (!isPlaying) return;
-    if (window.GamePause && window.GamePause.on) { requestAnimationFrame(gameLoop); return; }   // pausa
-    if (window.PerfilOpen || window.PerkOpen) { requestAnimationFrame(gameLoop); return; }        // pantalla de nombre / perfil (perfil.js) · menú de poderes
+    if (window.GamePause && window.GamePause.on) { __nextFrame(); return; }   // pausa
+    if (window.PerfilOpen || window.PerkOpen) { __nextFrame(); return; }        // pantalla de nombre / perfil (perfil.js) · menú de poderes
     // Seguro anti-desfase: si algún efecto (bomba, choque, cinemática) dejó el lienzo movido/escalado, se restablece
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0; ctx.shadowOffsetX = ctx.shadowOffsetY = 0; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    if (deathAnim) { drawDeathAnim(); requestAnimationFrame(gameLoop); return; }                  // la nave se rompe
-    if (reviveAnim) { drawReviveAnim(); requestAnimationFrame(gameLoop); return; }                // la nave se rearma
-    if (continueState) { drawContinue(); requestAnimationFrame(gameLoop); return; }               // ¿continuar?
+    if (deathAnim) { drawDeathAnim(); __nextFrame(); return; }                  // la nave se rompe
+    if (reviveAnim) { drawReviveAnim(); __nextFrame(); return; }                // la nave se rearma
+    if (continueState) { drawContinue(); __nextFrame(); return; }               // ¿continuar?
     
-    if (Extras.takeover()) { requestAnimationFrame(gameLoop); return; }
-    if (coinCine) { drawCoinCine(); requestAnimationFrame(gameLoop); return; }                    // v43: escena de la moneda (2 s)
-    if (window.__hitStop > 0) { window.__hitStop--; requestAnimationFrame(gameLoop); return; }   // v40: pausa corta al caer el mini jefe (antes de que salga la moneda)
+    if (Extras.takeover()) { __nextFrame(); return; }
+    if (coinCine) { drawCoinCine(); __nextFrame(); return; }                    // v43: escena de la moneda (2 s)
+    if (window.__hitStop > 0) { window.__hitStop--; __nextFrame(); return; }   // v40: pausa corta al caer el mini jefe (antes de que salga la moneda)
     
     updateMusicState();
     
@@ -5693,7 +5710,7 @@ function gameLoop() {
     if (window.ShipFX) ShipFX.afterFrame();
     Extras.afterFrame();
 
-    requestAnimationFrame(gameLoop);
+    __nextFrame();
 }
 
 // Demora entre disparos al mantener presionado, estilo Touhou 6:
@@ -8578,7 +8595,7 @@ const Shop = (function () {
         open() { openShop(); },
         dev: {
             gems(n) { st.gems = n | 0; save(); refreshBtn(); renderShop(); },
-            reset() { st = { gems: 0, skins: ['classic'], skin: 'classic', up: {}, phoenixUsed: false }; save(); refreshBtn(); renderShop(); },
+            reset() { st = { gems: 0, skins: ['classic'], skin: 'classic', up: {}, phoenixUsed: false }; save(); try { RetroSkins.reset(); } catch (e) {} refreshBtn(); renderShop(); },
             state() { return st; }
         }
     };
@@ -8697,7 +8714,7 @@ const Shop = (function () {
         const host = document.getElementById('gameContainer') || document.body;
         modal = document.createElement('div'); modal.id = 'shopModal'; modal.className = 'hidden';
         modal.innerHTML = `<div class="shop-box"><div class="shop-head"><div class="shop-title">TIENDA ESTELAR</div><div class="shop-gems"><i class="gem-ico"></i><span id="shopGems">0</span></div></div>
-            <div class="shop-tabs"><button class="shop-tab on" data-tab="skins">SKINS</button></div>
+            <div class="shop-tabs"><button class="shop-tab on" data-tab="skins">SKINS</button><button class="shop-tab" data-tab="retro">RETRO 70s/80s</button></div>
             <div class="shop-grid" id="shopGrid"></div>
             <div class="shop-foot"><span>Gana gemas con los enemigos del MODO ARCOIRIS (combo x50)</span><button class="shop-close" id="shopClose">CERRAR</button></div></div>`;
         host.appendChild(modal);
@@ -8727,6 +8744,13 @@ const Shop = (function () {
         if (!modal) return;
         const G = modal.querySelector('#shopGems'); if (G) G.textContent = fmt(st.gems);
         const grid = modal.querySelector('#shopGrid'); if (!grid) return;
+        if (tab === 'retro') {   // v44: skins retro 70s/80s de las 4 naves principales (skins_retro.js)
+            try {
+                RetroSkins.renderShop(grid, { gems: st.gems, fmt, sfx, deny, redraw: renderShop,
+                    spend: n => { if (st.gems < n) return false; st.gems -= n; save(); refreshBtn(); return true; } });
+            } catch (e) { grid.innerHTML = '<p>No se pudo cargar la pestaña RETRO.</p>'; console.warn('RetroSkins', e); }
+            return;
+        }
         let h = '';
         if (tab === 'skins') SKINS.forEach(s => {
             const own = st.skins.indexOf(s.id) >= 0, eq = st.skin === s.id, poor = !own && st.gems < s.price;
@@ -13884,8 +13908,8 @@ const HUD = (function () {
         ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.283); ctx.stroke(); ctx.shadowBlur = 0;
         ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,215,170,0.55)'; ctx.beginPath(); ctx.arc(0, 0, r * 1.1, 0, 6.283); ctx.stroke();
         ctx.save(); ctx.rotate(t / 9000); ctx.setLineDash([2, 7]); ctx.beginPath(); ctx.arc(0, 0, r * 1.22, 0, 6.283); ctx.stroke(); ctx.restore();
-        tt('遊', 0, r * 0.38, '#ff4560', r * 1.15, 'center', { glow: '#e0243a', out: '#fff' });
-        tt('宇宙', -r * 1.55, -r * 0.1, '#fff', r * 0.62, 'center'); tt('戯', r * 1.55, r * 0.34, '#fff', r * 0.62, 'center');
+        tt('降', 0, r * 0.38, '#ff4560', r * 1.15, 'center', { glow: '#e0243a', out: '#fff' });
+        tt('紅星', -r * 1.55, -r * 0.1, '#fff', r * 0.62, 'center'); tt('臨', r * 1.55, r * 0.34, '#fff', r * 0.62, 'center');
         ctx.restore();
     }
     let fpsAvg = 60, fpsLast = 0;
@@ -14465,7 +14489,7 @@ const TouhouUI = (function () {
     }
     function drawFooter(al) {
         g.globalAlpha = al; g.fillStyle = '#ffe9de'; g.font = '700 ' + Math.max(9, Math.round(H * 0.018)) + 'px ' + SERIF; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
-        g.fillText('© Space Game Remake — edición estilo Touhou v5', L.narrow ? 10 : W * 0.04, H - 30); g.globalAlpha = 1;
+        g.fillText('© Scarlet Starfall — edición estilo Touhou v5', L.narrow ? 10 : W * 0.04, H - 30); g.globalAlpha = 1;
     }
     function getVig() {
         return C.vig || (C.vig = bake(W, H, () => {
@@ -14492,7 +14516,7 @@ const TouhouUI = (function () {
             g.quadraticCurveTo(x + s * 1.4, y - s * (1.1 + f), x, y); g.fill();
         }
     }
-    const KANJI = ['宇', '宙', '遊', '戯'], KT = [8900, 9350, 9800, 10300];
+    const KANJI = ['紅', '星', '降', '臨'], KT = [8900, 9350, 9800, 10300];
     function drawTitle(T) {
         const ks = L.ks;
         for (let i = 0; i < 4; i++) {
@@ -14528,7 +14552,11 @@ const TouhouUI = (function () {
             try { g.letterSpacing = Math.round(ks * 0.12) + 'px'; } catch (e) {}
             g.font = '800 ' + Math.round(ks * 0.34) + 'px ' + CAPS; g.fillStyle = '#fff'; g.shadowColor = '#e0243a'; g.shadowBlur = 12;
             const ny = Math.min(H * 0.93, L.ty + ks * 4.65 + ks * 0.55);
-            g.fillText('SPACE GAME', L.tx - ks * 0.55, ny);
+            // v43: nombre largo (SCARLET STARFALL): se encoge para que quepa a la derecha de los kanji sin salirse de la pantalla
+            const NAME = 'SCARLET STARFALL', nx = L.tx - ks * 0.55, maxW = Math.max(ks * 3, Math.min(ks * 6.4, W - nx - 14));
+            const w0 = g.measureText(NAME).width;
+            if (w0 > maxW) { const k = maxW / w0; try { g.letterSpacing = Math.max(1, Math.round(ks * 0.12 * k)) + 'px'; } catch (e) {} g.font = '800 ' + Math.max(8, Math.floor(ks * 0.34 * k)) + 'px ' + CAPS; }
+            g.fillText(NAME, nx, ny);
             try { g.letterSpacing = '0px'; } catch (e) {}
             g.restore();
         }
@@ -14543,7 +14571,7 @@ const TouhouUI = (function () {
         g.rotate(0); polyStar(r * 0.92, 5, 2);
         g.shadowBlur = 0; g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
         g.font = '800 ' + Math.round(Math.min(W * 0.045, 28)) + 'px ' + CAPS; try { g.letterSpacing = '8px'; } catch (e) {}
-        g.fillText('PROYECTO SPACE GAME', 0, r * 1.6);
+        g.fillText('PROYECTO ESCARLATA', 0, r * 1.6);
         g.font = 'italic 600 ' + Math.round(Math.min(W * 0.028, 16)) + 'px ' + CAPS; g.fillStyle = '#e8a9a2'; try { g.letterSpacing = '4px'; } catch (e) {}
         g.fillText('presenta', 0, r * 2.35);
         try { g.letterSpacing = '0px'; } catch (e) {}
@@ -15859,6 +15887,10 @@ const BombFX = (function () {
     'use strict';
     const TAU = Math.PI * 2;
     let fx = null;
+    // v43: Choque.start() (choque.js) llama a BombFX.reset() cuando el jefe llega a 0 de vida. Si eso ocurría DENTRO de start() o update()
+    // (la bomba mata al jefe a mitad de sus ondas), fx pasaba a null y el código de la bomba seguía usándolo -> TypeError y juego congelado.
+    // Ahora el reset se aplaza hasta que termina la función en curso.
+    let busy = false, pendingReset = false;
     const rnd = (a, b) => a + Math.random() * (b - a);
     const lite = () => (typeof performanceMode !== 'undefined' && performanceMode);
     const isFocus = () => keys['ShiftLeft'] || keys['ShiftRight'] || (window.TouchInput && window.TouchInput.focus);
@@ -15985,8 +16017,12 @@ const BombFX = (function () {
         bombEffect = { active: true, custom: true, radius: 0, maxRadius: 0, x, y };
         invulnerableUntil = Math.max(invulnerableUntil, Date.now() + 1500);
         // golpe base a toda la pantalla (la bomba siempre limpia lo débil)
-        for (let j = enemies.length - 1; j >= 0; j--) hurtEnemy(enemies[j], d.base[0]);
-        for (const b of bossList()) hurtBoss(b, d.base[1]);
+        busy = true;
+        try {
+            for (let j = enemies.length - 1; j >= 0; j--) hurtEnemy(enemies[j], d.base[0]);
+            for (const b of bossList()) hurtBoss(b, d.base[1]);
+        } finally { busy = false; }
+        if (pendingReset) { pendingReset = false; fx = null; bombEffect = { active: false, radius: 0, maxRadius: 0, x: 0, y: 0 }; return; }   // el golpe base mató al jefe y arrancó el choque: la bomba se cancela
         try { playExplosionSound(); setTimeout(playExplosionSound, 120); } catch (e) {}
         screenShake = Math.max(screenShake, 18);
         const init = INIT[kind]; if (init) init();
@@ -16348,12 +16384,20 @@ const BombFX = (function () {
     // ------------------------------------------------------------------ interfaz hacia el juego
     function update() {
         if (!fx) return;
-        fx.t++;
-        invulnerableUntil = Math.max(invulnerableUntil, Date.now() + 250);
-        bombEffect.active = true; bombEffect.x = bx(); bombEffect.y = by();
-        const U = UPD[fx.kind]; if (U) U();
-        for (let i = fx.rings.length - 1; i >= 0; i--) { const r = fx.rings[i]; r.r += r.speed; r.a = Math.max(0, 1 - r.r / r.max); if (r.r >= r.max) fx.rings.splice(i, 1); }
-        if (fx.t >= fx.dur) finish();
+        busy = true;
+        try {
+            fx.t++;
+            invulnerableUntil = Math.max(invulnerableUntil, Date.now() + 250);
+            bombEffect.active = true; bombEffect.x = bx(); bombEffect.y = by();
+            const U = UPD[fx.kind]; if (U) U();
+            if (!pendingReset) {
+                for (let i = fx.rings.length - 1; i >= 0; i--) { const r = fx.rings[i]; r.r += r.speed; r.a = Math.max(0, 1 - r.r / r.max); if (r.r >= r.max) fx.rings.splice(i, 1); }
+                if (fx.t >= fx.dur) finish();
+            }
+        } finally {
+            busy = false;
+            if (pendingReset) { pendingReset = false; fx = null; bombEffect = { active: false, radius: 0, maxRadius: 0, x: 0, y: 0 }; }
+        }
     }
     function finish() {
         fx = null; bombEffect = { active: false, radius: 0, maxRadius: 0, x: 0, y: 0 };
@@ -16369,7 +16413,7 @@ const BombFX = (function () {
         banner();
         ctx.restore();
     }
-    function reset() { fx = null; }
+    function reset() { if (busy) { pendingReset = true; return; } fx = null; }
     return { start, update, under, over, reset, active: () => !!fx };
 })();
 window.BombFX = BombFX;
