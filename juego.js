@@ -182,7 +182,12 @@ function computeLayout() {
     canvas.width = logicalW;
     canvas.height = logicalH;
 
-    if (isPortraitMode) {
+    if (isPortraitMode && window.HudPhone && HudPhone.active()) {
+        // v52: HUD compacto arriba (hud_telefono.js): ya no se reserva la franja de abajo, donde van los pulgares
+        hudPosition = 'none'; hudSize = 0;
+        playAreaW = canvas.width;
+        playAreaH = canvas.height;
+    } else if (isPortraitMode) {
         hudPosition = 'bottom';
         hudSize = Math.round(Math.max(120, Math.min(190, h * 0.24)));
         playAreaW = canvas.width;
@@ -5010,7 +5015,7 @@ function gameLoop() {
 function gameLoopFrame() {
     if (!isPlaying) return;
     if (window.GamePause && window.GamePause.on) { __nextFrame(); return; }   // pausa
-    if (window.PerfilOpen || window.PerkOpen) { __nextFrame(); return; }        // pantalla de nombre / perfil (perfil.js) · menú de poderes
+    if (window.PerfilOpen || window.PerkOpen || window.StoryOpen) { __nextFrame(); return; }        // pantalla de nombre / perfil (perfil.js) · menú de poderes
     // Seguro anti-desfase: si algún efecto (bomba, choque, cinemática) dejó el lienzo movido/escalado, se restablece
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0; ctx.shadowOffsetX = ctx.shadowOffsetY = 0; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     if (deathAnim) { drawDeathAnim(); __nextFrame(); return; }                  // la nave se rompe
@@ -14132,7 +14137,7 @@ const HUD = (function () {
         const b = (activeBoss && activeBoss.state !== 'dead') ? activeBoss : ((activeMiniBoss && activeMiniBoss.state === 'active') ? activeMiniBoss : null);
         if (!b || !b.maxHp || levelCompleteActive) return;
         const full = (b === activeBoss) ? 3 : 1, left = Math.max(1, Math.ceil(clamp(b.hp / b.maxHp, 0, 1) * full));
-        const x = isVerticalMode ? 10 : 10, y = 22;
+        let x = 10, y = 22; if (window.HudPhone && HudPhone.active()) { const ep = HudPhone.enemyPos(); x = ep.x; y = ep.y; }
         ctx.save(); tt('Enemigo', x, y, '#ffe6d0', 12, 'left');
         for (let i = 0; i < left; i++) star(x + 78 + i * 14, y - 4, 6, '#ff5a70', '#f00');
         ctx.restore();
@@ -14142,6 +14147,7 @@ const HUD = (function () {
         playAreaFx();
         try { enemyTag(); } catch (e) {}
         if (isVerticalMode) drawSide(playAreaW, canvas.width - playAreaW, canvas.height, true);
+        else if (window.HudPhone && HudPhone.active() && (hudPosition === 'side' || hudPosition === 'none')) HudPhone.draw({ t: now(), clamp, pad, txt, panel, bar, heart, chip, levelInfo, effects, bombFrac, drawFloaters, st, tierCol });
         else if (hudPosition === 'side') drawSide(playAreaW, canvas.width - playAreaW, canvas.height, false);
         else if (hudPosition === 'bottom') drawBottom(playAreaH, canvas.height - playAreaH);
     }

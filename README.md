@@ -671,3 +671,13 @@ Al disparar desde la parte baja, enemigos y balas de la franja superior se dibuj
 
 ## v50 · Refuerzo de música (`musica_fix.js`)
 Desbloqueo de audio en móviles (touchend/pointerup), reanudación tras bloquear el móvil o cambiar de app, vigilante que reinicia la pista si debía sonar y no suena, y aviso si ningún .mp3 carga. Consola: `MusicFix.status()`.
+
+## v51 · Historia entre fases + tarjeta para compartir (`historia_compartir.js`)
+- **Historia**: prólogo + una pantalla por zona (1-7) con ilustración animada y texto; se ve una vez por dispositivo (SALTAR / NO MOSTRAR MÁS). Solo modo Moderno. Pausa la partida (`window.StoryOpen`, 1 retoque en `juego.js`). Consola: `Story.reset()`, `Story.show(1..7)`.
+- **Tarjeta**: botón COMPARTIR en la pantalla de fin de partida; imagen 1080x1350 con nombre, puntaje, zona, dificultad y nave (usa `portada.png`). Comparte con el menú del teléfono o descarga el PNG.
+
+## v52 · HUD compacto para teléfono (`hud_telefono.js`)
+Solo con "Modo teléfono". **Vertical:** el HUD pasa a una barra fina y translúcida arriba (puntaje, nivel/tiempo, vidas y 4 casillas ATQ/PWR/BOM/ALI) y el área de juego usa toda la pantalla (se libera la franja de abajo donde van los pulgares). **Horizontal:** panel lateral con lo esencial agrupado arriba y la mitad de abajo libre para los botones A/B. Textos más grandes y menos información. Retoques en `juego.js`: `computeLayout()`, `HUD.draw()` y la etiqueta "Enemigo". Consola: `HudPhone.cfg.enabled = false` para volver al HUD anterior.
+
+## v53 · Mini tutorial en viñetas (`tutorial_comic.js`)
+9 viñetas de cómic (fondo negro con estrellas, narrador amarillo, globos y humor): hitbox, balas enemigas, enemigos, mini jefes, jefes, qué SÍ recoger, qué NO tocar y controles (PC o teléfono). Sale solo la primera vez que empiezas una partida Moderno, antes de la historia y del nivel 1. Se salta con el botón de arriba o Esc. Para verlo otra vez: botón "VER TUTORIAL" en la pausa, `Tutorial.show()` o `Tutorial.reset()` en consola.
