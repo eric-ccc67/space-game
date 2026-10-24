@@ -1,3 +1,12 @@
+## v55
+- **Créditos** en el menú principal (`creditos.js`): autores y obras de las que se inspira el juego (Touhou, Dragon Ball, Super Mario, Undertale, Pac-Man, Galaga, Space Invaders, Atari, Tetris, Deadpool...). La música se acredita a Touhou 3, 4 y 5 (ZUN) en la lista `MUSIC` de `creditos.js`. Consola: `Creditos.open()`.
+
+## v54
+- **Tutorial jugable con ESTRELLITA** (`tutorial_comic.js`, reescrito): ya no son pantallas con texto. Una estrella pixelada te habla con globos de cómic y cajas de narrador amarillas (humor que rompe la cuarta pared) mientras juegas de verdad: moverte (círculos), disparar (blancos de práctica), premios P/G/A y tarjeta de escudo, hitbox + graze, esquivar un anillo de balas, bomba (te regala una), enemigo grande con barra de vida y, al final, unas "balitas de amistad" que son balas: Estrellita se convierte en un jefe estilo Flowey (**ESTRELLITA.EXE**, 3 fases) que hay que derrotar para terminar el tutorial.
+- Sale solo la primera partida (Moderno). Botón SALTAR (2 toques) arriba a la derecha; Enter o tocar = avanzar el diálogo. "VER TUTORIAL" en la pausa (entre jefes). El estado de la partida se guarda y se devuelve al terminar.
+- Consola: `Tutorial.dev.go('shoot'|'items'|'hitbox'|'bomb'|'big'|'pellets'|'boss'|'end')`, `Tutorial.reset()`.
+- Cambios: `index.html` (fuentes Bangers/Comic Neue), `sw.js` (caché v54).
+
 ## v44
 - **Skins RETRO 70s/80s** (`skins_retro.js`, nuevo): cada una de las **4 naves principales** (Tanque, Sniper, Ligera y Omega) tiene su skin retro propia, con **otro dibujo de nave, otro disparo y otro sonido**. Solo cambia el aspecto y el sonido: daño, cadencia y hitboxes no se tocan.
   - **Nave 1 · Tanque → CAÑON INVASOR 78** (homenaje a *Space Invaders*): cañón de fósforo verde con líneas de barrido y orugas animadas; dispara el **zigzag** de los invasores.

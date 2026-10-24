@@ -14662,6 +14662,7 @@ const TouhouUI = (function () {
         { id: 'score', label: 'Puntajes', cap: 'Ranking de pilotos y misiones diarias.' },
         { id: 'shop', label: 'Tienda', cap: 'Skins con tus gemas.' },
         { id: 'option', label: 'Opciones', cap: 'Controles, pantalla y rendimiento.' },
+        { id: 'credits', label: 'Créditos', cap: 'Autores y obras en las que se inspira el juego.' },       // v55
         { id: 'install', label: 'Descargar app', cap: 'Instálalo en tu teléfono: pantalla completa, como una app.' },     // v43 (se quita solo si ya está instalado)
         { id: 'quit', label: 'Salir', cap: 'Volver al título.' }
     ];
@@ -15009,6 +15010,7 @@ const TouhouUI = (function () {
         if (id === 'shop') { const b = $('btnShop'); if (b) b.click(); else toastMsg('La tienda no está disponible.'); return; }
         if (id === 'option') { const b = $('btnOptionsToggle'); if (b) b.click(); return; }
         if (id === 'install') { if (window.InstallApp) window.InstallApp.open(); else toastMsg('La instalación no está disponible (falta instalar.js).'); return; }
+        if (id === 'credits') { if (window.Creditos) window.Creditos.open(); else toastMsg('Los créditos no están disponibles (falta creditos.js).'); return; }
         if (id === 'quit') return doQuit();
     }
     function it0shake() { const b = ITEMS[1].btn; b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); }
