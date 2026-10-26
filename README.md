@@ -1,6 +1,7 @@
-## v57
-- **Enemigos en alta definición** (`criaturas_hd.js`): enemigos, mini jefes y jefes de los 7 niveles se dibujan ahora con las criaturas vectoriales (antes sprites 8-bit de 2 cuadros). Bordes suaves, luz/sombra, animación continua (respiran, flotan, se inclinan al moverse), aparición elástica, poses de carga/lanzamiento/disparo y destello al recibir golpes. Se re-dibujan cada 2-3 cuadros (barato); en modo rendimiento bajan resolución y efectos.
-- Botón **ENEMIGOS: HD / RETRO** en el menú de pausa (se guarda). Consola: `CriaturasHD.enabled = false`.
+## v58
+- **Sprites 8-bit mejorados** (`sprites8bit_plus.js`): enemigos, mini jefes y jefes siguen siendo TUS sprites 8-bit (shmup_art.js), pero con doble resolución de píxel (EPX), contorno de 1 px nuevo + contorno interior de color, luz/sombra, aura de píxeles del color del nivel y animación de 16 cuadros (aleteo de alas/brazos/tentáculos, ondeo de falda/cola, flotación y respiración). Mismas poses de carga/disparo/golpe, más marcadas. Los cuadros se hornean una vez y se reutilizan.
+- Botón **SPRITES: MEJORADOS / CLÁSICOS** en la pausa. Consola: `Sprites8Plus.enabled = false`.
+- (Se eliminó el intento de enemigos HD: `criaturas_hd.js` / `enemigos_hd.js` ya no existen.)
 
 ## v56
 - **Tutorial**: los diálogos de Estrellita ya no se saltan solos: avanzan al pulsar el botón de ataque (ESPACIO / botón A / tocar la pantalla / Enter). Sprites reubicados (botón SALTAR fuera del HUD, burbuja del jefe bajo su barra de vida, la estrella se coloca sobre el punto donde suelta los premios).
