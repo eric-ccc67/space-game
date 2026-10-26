@@ -1,3 +1,13 @@
+## v57
+- **Enemigos en alta definición** (`criaturas_hd.js`): enemigos, mini jefes y jefes de los 7 niveles se dibujan ahora con las criaturas vectoriales (antes sprites 8-bit de 2 cuadros). Bordes suaves, luz/sombra, animación continua (respiran, flotan, se inclinan al moverse), aparición elástica, poses de carga/lanzamiento/disparo y destello al recibir golpes. Se re-dibujan cada 2-3 cuadros (barato); en modo rendimiento bajan resolución y efectos.
+- Botón **ENEMIGOS: HD / RETRO** en el menú de pausa (se guarda). Consola: `CriaturasHD.enabled = false`.
+
+## v56
+- **Tutorial**: los diálogos de Estrellita ya no se saltan solos: avanzan al pulsar el botón de ataque (ESPACIO / botón A / tocar la pantalla / Enter). Sprites reubicados (botón SALTAR fuera del HUD, burbuja del jefe bajo su barra de vida, la estrella se coloca sobre el punto donde suelta los premios).
+- **Combo**: panel ~40 % más pequeño y más arriba (no tapa el HUD).
+- **Explosiones** (`deathfx.js`): enemigos, mini jefes y jefes mueren con anillos, destello, rayos y chispas al estilo Touhou 6, con muchas menos partículas (ajustable en `DeathFX.cfg`; prueba: `DeathFX.test(1|2|3)`).
+- Caché del service worker: v56.
+
 ## v55
 - **Créditos** en el menú principal (`creditos.js`): autores y obras de las que se inspira el juego (Touhou, Dragon Ball, Super Mario, Undertale, Pac-Man, Galaga, Space Invaders, Atari, Tetris, Deadpool...). La música se acredita a Touhou 3, 4 y 5 (ZUN) en la lista `MUSIC` de `creditos.js`. Consola: `Creditos.open()`.
 

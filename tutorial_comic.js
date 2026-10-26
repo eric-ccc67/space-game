@@ -36,7 +36,7 @@
     const T = {
         on: false, pending: false, t: 0, replay: false, gen: null, snap: null, music: 'menu',
         lives: 5, restoreLives: true, lastInv: 0, hits: 0, hitFlag: false, grazes: 0, lastGraze: 0, adv: false, downs: 0,
-        marks: [], dum: [], callout: 0, fade: 0, dark: 0, flash: 0, glitch: 0, hpBar: null, skipBtn: null, skipT: 0, bgS: [], saved: null
+        marks: [], dum: [], callout: 0, fade: 0, dark: 0, flash: 0, glitch: 0, hpBar: null, skipBtn: null, skipT: 0, bgS: [], saved: null, lastAdv: -99, lastSpace: false
     };
     const star = { x: 0, y: 0, tx: 0, ty: 0, r: 40, mood: 'happy', vis: false, pop: 0, shake: 0, sx: 1, rot: 0, init: false };
     let D = null, CAP = null, B = null; const SFX = [];
@@ -199,10 +199,10 @@
     function drawBubble() {
         if (!D) return; const g = ctx, W = PW(), H = PH(), sp = speaker(), evil = D.style === 'evil';
         const fs = clamp(W * 0.027, 12, 17), lh = fs * 1.28, maxW = clamp(W * 0.52, 150, 380), pad = fs * 0.8;
-        const lay = layout(g, D.text, maxW, fs), bw = lay.mw + pad * 2, bh = lay.L.length * lh + pad * 1.5;
+        const lay = layout(g, D.text, maxW, fs), extra = D.block ? fs * 1.05 : 0, bw = Math.max(lay.mw, D.block ? fs * 5.2 : 0) + pad * 2, bh = lay.L.length * lh + pad * 1.5 + extra;
         const capH = CAP ? CAP.h + 14 : 0, onRight = sp.x < W * 0.5;
         let bx = onRight ? sp.x + sp.r + 18 : sp.x - sp.r - 18 - bw; bx = clamp(bx, 6, W - bw - 6);
-        let by = clamp(sp.y - bh / 2, 8 + capH, Math.max(8 + capH, H * 0.46 - bh)); if (B && B.state !== 'gone') by = 8 + capH + (H * 0.02);
+        let by = clamp(sp.y - bh / 2, 8 + capH, Math.max(8 + capH, H * 0.46 - bh)); if (B && B.state !== 'gone') by = (B.state === 'active' || B.state === 'dying' ? 60 : 8) + capH;
         const pop = clamp((T.t - D.born) / 6, 0.5, 1) , sc = pop < 1 ? 0.88 + 0.12 * pop : 1;
         g.save(); g.translate(bx + bw / 2, by + bh / 2); g.scale(sc, sc); g.translate(-(bx + bw / 2), -(by + bh / 2));
         const jag = (x, y, w, h) => { const n = Math.max(10, Math.round((w + h) / 14)); g.beginPath(); for (let i = 0; i < n * 2; i++) { const a = i / (n * 2) * TAU, k = i % 2 ? 0.9 : 1.08; g.lineTo(x + w / 2 + C(a) * w / 2 * k * 1.06, y + h / 2 + S(a) * h / 2 * k * 1.12); } g.closePath(); };
@@ -215,7 +215,7 @@
         g.beginPath(); g.moveTo(base, clamp(ty - 8, by + 6, by + bh - 6)); g.lineTo(base + (onRight ? 5 : -5), ty); g.lineTo(base, clamp(ty + 8, by + 6, by + bh - 6)); g.fillStyle = evil ? '#07000a' : '#fff'; g.fill();
         if (!evil) halftone(g, bx, by, bw, bh, 'rgba(0,0,0,.09)');
         g.font = FT(fs); drawRuns(g, lay, bx + pad, by + pad + fs * 0.85, lh, D.n, evil ? '#fff' : '#111', evil ? '#ff3b4a' : '#d4142c');
-        if (D.n >= D.total && T.t % 40 < 24 && D.ttl == null) { g.fillStyle = evil ? '#ff3b4a' : '#d4142c'; g.beginPath(); g.moveTo(bx + bw - 16, by + bh - 12); g.lineTo(bx + bw - 8, by + bh - 12); g.lineTo(bx + bw - 12, by + bh - 6); g.fill(); }
+        if (D.block && D.wait && T.t % 50 < 32) { g.font = FS(fs * 0.95); g.textAlign = 'right'; g.fillStyle = evil ? '#ff3b4a' : '#d4142c'; g.fillText((phone() ? 'TOCA  A' : 'ESPACIO') + '  ▶', bx + bw - pad * 0.8, by + bh - pad * 0.45); g.textAlign = 'left'; }
         g.restore();
     }
     function drawCaption() {
@@ -270,12 +270,17 @@
     function cap(text, life, kind) { CAP = { text, life: life || 280, t: 0, kind: kind || 'yellow', h: 30 }; }
     function* wait(n) { for (let i = 0; i < n; i++) yield; }
     function* until(fn, maxF, hintAt, hintText) { let i = 0, hinted = false; while (!fn()) { i++; if (maxF && i >= maxF) return false; if (hintAt && !hinted && i >= hintAt) { hinted = true; tell(hintText, 'sassy'); } yield; } return true; }
+    // Un diálogo NO se salta solo: espera a que pulses el botón de ataque (ESPACIO / botón A / tocar la pantalla / Enter)
     function* say(text, mood, hold, style) {
-        tell(text, mood, style); T.adv = false; yield* until(typed);
-        const h = hold != null ? hold : Math.round(46 + text.length * 0.95);
-        for (let i = 0; i < h; i++) { if (T.adv) { T.adv = false; break; } yield; }
+        tell(text, mood, style); D.block = true; T.adv = false; yield* until(typed);
+        const myD = D; let w = 0; T.adv = false;
+        while (D === myD) { w++; if (w < 14) T.adv = false; if (T.adv) { T.adv = false; break; } myD.wait = w >= 14; yield; }
+        if (D === myD) myD.wait = false;
     }
-    function advance() { if (!T.on) return; if (D && !typed()) D.n = 1e9; else T.adv = true; }
+    function advance() {
+        if (!T.on || T.t - T.lastAdv < 8) return; T.lastAdv = T.t;
+        if (D && !typed()) D.n = 1e9; else T.adv = true;
+    }
     function stepDialog() {
         if (D) {
             if (D.n < D.total) { const before = Math.floor(D.n); D.n += (D.style === 'evil' ? 0.8 : 1.05); if (Math.floor(D.n) !== before && Math.floor(D.n) % 2 === 0) blip(D.style === 'evil'); }
@@ -467,21 +472,22 @@
     }
     function* collect(mkIt, hintTxt) {
         for (let n = 0; n < 3; n++) {
+            star.tx = dropX(); star.ty = Math.max(home().y, 70); yield* wait(40);
             const it = mkIt(); const ok = yield* until(() => !pointItems.includes(it) && !items.includes(it), 720);
             if (ok && it.y < PH() + 20) { sfxAt('¡ÑAM!', pcx(), pcy() - 30, '#ffe94a', 22, 36); sDing(); return true; }
             if (n < 2) tell(hintTxt, 'sassy');
         }
         return false;
     }
-    const dropX = () => clamp(pcx() + rnd(-140, 140), 30, PW() - 50), dropY = () => Math.max(star.y + star.r, 70);
-    function mkPoint(type) { return () => { const it = new PointItem(dropX(), dropY(), type); it.vy = 2.2; pointItems.push(it); return it; }; }
+    const dropX = () => clamp(pcx() + rnd(-140, 140), 40, PW() - 60), dropY = () => star.y + star.r * 0.9;
+    function mkPoint(type) { return () => { const it = new PointItem(clamp(star.x - 8, 20, PW() - 40), dropY(), type); it.vy = 2.2; pointItems.push(it); sfxAt('¡TOMA!', star.x, star.y + star.r + 20, '#ffe94a', 18, 28); return it; }; }
     function* sItems() {
         yield* say('Al derrotar enemigos sueltan *premios*. ¡Recógelos tocándolos! Mira, te lanzo unos.', 'wink', 30);
         tell('El *P rojo* da *VIDA*: junta 5 y ganas una extra.', 'happy'); yield* collect(mkPoint('power'), '¡Se te cae! Tócalo con la nave.');
         tell('El *G verde* carga tu *BOMBA*.', 'happy'); yield* collect(mkPoint('graze'), '¡Que no se escape el verde!');
         tell('El *A naranja* sube tu *NIVEL DE ATAQUE*.', 'happy'); yield* collect(mkPoint('attack'), '¡Atrapa el naranja!');
         tell('Y las *tarjetas* dan poderes por unos segundos. ¡Esta es un *ESCUDO*!', 'wink');
-        yield* collect(() => { const it = new Item(dropX(), dropY()); it.type = 0; items.push(it); return it; }, 'La tarjeta cae lento... ¡tú puedes!');
+        yield* collect(() => { const it = new Item(clamp(star.x - 8, 20, PW() - 40), dropY()); it.type = 0; items.push(it); sfxAt('¡TOMA!', star.x, star.y + star.r + 20, '#ffe94a', 18, 28); return it; }, 'La tarjeta cae lento... ¡tú puedes!');
         yield* say('¡Todo eso sin pagar impuestos! Sigamos.', 'sassy', 35);
     }
     function* sHitbox() {
@@ -494,7 +500,7 @@
         yield* say('¡Eso es *GRAZE*! Rozar balas carga tu *BOMBA*. ¡Riesgo = recompensa!', 'happy', 45);
         yield* say(phone() ? 'Para esquivar con precisión mantén *SLOW*. Ahora... *esquiva* esto.' : 'Para esquivar con precisión mantén *SHIFT* (ir lento). Ahora... *esquiva* esto.', 'sassy', 30);
         T.hits = 0; T.hitFlag = false;
-        for (let w = 0; w < 4; w++) { const a = Math.atan2(pcy() - star.y, pcx() - star.x) + rnd(-0.5, 0.5); ring(star.x, star.y, 22, 1.9, 0, '#ff6fd0', a, 3); sfxAt('¡PIU!', star.x - 30, star.y + star.r, '#ff4f86', 20, 28); yield* wait(110); }
+        for (let w = 0; w < 4; w++) { const a = Math.atan2(pcy() - star.y, pcx() - star.x) + rnd(-0.5, 0.5); ring(star.x, star.y, 22, 1.9, 0, '#ff6fd0', a, 3); sfxAt('¡PIU!', star.x, star.y + star.r + 22, '#ff4f86', 20, 28); yield* wait(110); }
         yield* wait(150);
         if (T.hits > 0) yield* say('¡Auch! Eso fue una vida menos... pero aquí son *infinitas*. Tutorial generoso.', 'wink', 50);
         else yield* say('¡Ni un rasguño! Me caes bien... *por ahora*.', 'sassy', 45);
@@ -570,6 +576,7 @@
                     B = newBoss(); B.state = 'active'; B.grow = 1; B.vine = 1; B.r = 18 * B.k; B.x = PW() / 2; B.y = PH() * 0.24; B.hp = name === 'end' ? 0 : BOSS_HP; T.hpBar = { v: 1 }; lives = 3; T.lives = 3; T.restoreLives = false; T.music = 'boss'; T.darkTarget = 0.4; setBombStock(1);
                 }
             }
+            if (name !== 'transform' && name !== 'boss' && name !== 'end') { const h2 = home(); star.tx = h2.x; star.ty = h2.y; }
             yield* fn();
         }
     }
@@ -578,7 +585,6 @@
     function stepStar() {
         const k = PW() >= 640 ? 3 : 2; star.r = 15.5 * k; if (!star.init) { const h = home(); star.x = star.tx = h.x; star.y = star.ty = h.y; star.init = true; }
         star.x += (star.tx - star.x) * 0.07; star.y += (star.ty - star.y) * 0.07; if (star.pop > 0) star.pop--; star.shake *= 0.9;
-        if (!B && star.vis && Math.abs(star.tx - star.x) < 2 && !T.keepPos) { const h = home(); if (!T.freeStar) { star.tx += (h.x - star.tx) * 0.02; star.ty += (h.y - star.ty) * 0.02; } }
     }
     function watch() {
         if (invulnerableUntil !== T.lastInv) {
@@ -598,6 +604,7 @@
         T.t++; levelTransitionTimer = 9e5;     // mientras dura el tutorial no salen oleadas reales
         T.dark += ((T.darkTarget || 0) - T.dark) * 0.03; T.fade += ((T.fadeTarget || 0) - T.fade) * 0.05; if (T.glitch > 0) T.glitch--;
         if (T.clearB) { enemyBullets = []; T.clearB = false; }
+        { const sp = !!(typeof keys !== 'undefined' && keys['Space']); if (sp && !T.lastSpace) advance(); T.lastSpace = sp; }
         stepStar(); stepDialog(); watch(); stepDummies(); stepBoss();
         if (T.restoreLives && lives < T.lives) lives = T.lives;
         if (T.gen) { let r; try { r = T.gen.next(); } catch (e) { console.warn('[Tutorial] guion', e); finish(true); return; } if (r.done) finish(false); }
@@ -690,15 +697,16 @@
     function buildSkip() {
         if (!$('tcStyle2')) {
             const st = document.createElement('style'); st.id = 'tcStyle2';
-            st.textContent = '#tcSkip2{position:fixed;top:8px;right:8px;z-index:9990;font:900 11px Impact,"Arial Black",sans-serif;letter-spacing:.5px;padding:8px 12px;border:3px solid #ffe94a;background:#111;color:#ffe94a;border-radius:6px;cursor:pointer;opacity:.85}#tcSkip2:active{background:#d4142c;color:#fff}';
+            st.textContent = '#tcSkip2{position:fixed;bottom:8px;right:8px;z-index:9990;font:900 11px Impact,"Arial Black",sans-serif;letter-spacing:.5px;padding:8px 12px;border:3px solid #ffe94a;background:#111;color:#ffe94a;border-radius:6px;cursor:pointer;opacity:.85}#tcSkip2:active{background:#d4142c;color:#fff}';
             document.head.appendChild(st);
         }
-        removeSkip(); const b = document.createElement('button'); b.id = 'tcSkip2'; b.type = 'button'; b.textContent = 'SALTAR TUTORIAL ✕';
+        removeSkip(); const b = document.createElement('button'); b.id = 'tcSkip2'; b.type = 'button'; b.textContent = 'SALTAR TUTORIAL ✕'; if (phone()) { b.style.bottom = 'auto'; b.style.top = '6px'; b.style.right = 'auto'; b.style.left = '50%'; b.style.transform = 'translateX(-50%)'; b.style.padding = '5px 9px'; b.style.fontSize = '9px'; }
         b.onclick = () => { if (T.skipT > 0) { finish(true); } else { T.skipT = 1; b.textContent = '¿SEGURO? TOCA OTRA VEZ'; setTimeout(() => { T.skipT = 0; if (b.isConnected) b.textContent = 'SALTAR TUTORIAL ✕'; }, 2500); } };
         document.body.appendChild(b); T.skipBtn = b;
     }
     function removeSkip() { if (T.skipBtn) { T.skipBtn.remove(); T.skipBtn = null; } const o = $('tcSkip2'); if (o) o.remove(); }
     window.addEventListener('keydown', e => { if (!T.on) return; if (e.key === 'Enter' || e.key === 'x' || e.key === 'X') { advance(); e.preventDefault(); } }, true);
+    try { $('btnShoot').addEventListener('pointerdown', () => { if (T.on) advance(); }); } catch (e) {}
     try { $('gameCanvas').addEventListener('pointerdown', () => { if (T.on) advance(); }); } catch (e) {}
     setInterval(() => {
         if (T.on && !isPlaying) finish(true);

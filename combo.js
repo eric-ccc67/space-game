@@ -230,7 +230,7 @@
     function drawPerks() {
         const W = PW(), H = PH(), t = C.frame;
         ctx.save(); ctx.textAlign = 'left'; ctx.lineJoin = 'round'; ctx.font = '8px "Press Start 2P", monospace';
-        let y = 208; const pb = partnerBonus();
+        let y = 160; const pb = partnerBonus();
         if (C.n > 0 && pb > 0) { ctx.globalAlpha = C.pbT > 0 ? 1 : 0.85; outlineText('PARTNERS +' + pb.toFixed(2) + (C.pbT > 0 ? ' UP!' : ''), 10, y, C.pbT > 0 ? '#fff' : '#7fe0ff', '#12000a', 3); y += 14; }
         ctx.globalAlpha = 0.95;
         ctx.restore();
@@ -312,7 +312,7 @@
         ctx.save(); ctx.textAlign = 'left'; ctx.lineJoin = 'round';
 
         // --- panel principal (esquina izquierda) · ampliado ×1.3 para que se lea de un vistazo
-        ctx.save(); ctx.translate(6, 84); ctx.scale(1.3, 1.3); ctx.translate(-6, -84);
+        ctx.save(); ctx.translate(6, 70); ctx.scale(0.8, 0.8); ctx.translate(-6, -84);   // v56: más chico y más arriba para no tapar el HUD
         if (C.n >= 1) {
             const col = rankCol(r || { c: '#9aa6b8' }, t), x0 = 8 + C.shakeX, y0 = 88 + C.shakeY, sc = 1 + C.pop * 0.55;
             const fade = C.t < 30 && C.rainbow <= 0 ? 0.55 + 0.45 * S(t * 0.5) : 1;
@@ -364,7 +364,7 @@
         if (C.wordT > 0) {
             const k = 1 - C.wordT / (C.rainbow > 0 && C.word.charAt(1) === 'M' ? 100 : 70), a = Math.min(1, C.wordT / 18) * Math.min(1, (k + 0.05) * 6), cx = W / 2, cy = H * 0.3;
             const sc = 1 + Math.max(0, 0.35 - k * 1.2) * 3 + k * 0.1; ctx.save(); ctx.translate(cx, cy); ctx.scale(sc, sc); ctx.textAlign = 'center';
-            ctx.globalAlpha = a; ctx.font = 'italic 900 ' + (C.word.length > 10 ? 26 : 34) + 'px "Noto Serif JP","Cinzel",Impact,serif'; ctx.transform(1, 0, -0.15, 1, 0, 0);
+            ctx.globalAlpha = a; ctx.font = 'italic 900 ' + (C.word.length > 10 ? 22 : 28) + 'px "Noto Serif JP","Cinzel",Impact,serif'; ctx.transform(1, 0, -0.15, 1, 0, 0);
             outlineText(C.word, 0, 0, C.word.indexOf('ARCO') >= 0 ? hue(t * 8) : C.wordCol, '#12000a', 7); ctx.restore();
             if (!low() && C.flash > 0.2) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = C.flash * 0.5; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; for (let i = 0; i < 10; i++) { const an = i * TAU / 10 + t * 0.02, r0 = 40 + (1 - C.flash) * 80; ctx.beginPath(); ctx.moveTo(cx + C0(an) * r0, cy + S(an) * r0); ctx.lineTo(cx + C0(an) * (r0 + 26), cy + S(an) * (r0 + 26)); ctx.stroke(); } ctx.restore(); }
         }

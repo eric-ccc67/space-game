@@ -4183,7 +4183,7 @@ function defeatMiniBoss() {
     for (let k = 0; k < Math.max(2, Math.round(6 * powerupDropMult())); k++) items.push(new Item(activeMiniBoss.x + Math.random()*activeMiniBoss.width, activeMiniBoss.y + Math.random()*activeMiniBoss.height));
     for (let k = 0; k < 10; k++) pointItems.push(new PointItem(activeMiniBoss.x + Math.random()*activeMiniBoss.width, activeMiniBoss.y + Math.random()*activeMiniBoss.height, 'power'));
     for (let k = 0; k < 18; k++) pointItems.push(new PointItem(activeMiniBoss.x + Math.random()*activeMiniBoss.width, activeMiniBoss.y + Math.random()*activeMiniBoss.height, 'pixel'));
-    for (let k = 0; k < perfCount(35); k++) dopamineParticles.push(new DopamineParticle(activeMiniBoss.x + activeMiniBoss.width/2, activeMiniBoss.y + activeMiniBoss.height/2, true));
+    for (let k = 0; k < perfCount(12); k++) dopamineParticles.push(new DopamineParticle(activeMiniBoss.x + activeMiniBoss.width/2, activeMiniBoss.y + activeMiniBoss.height/2, true));
     setTimeout(() => {
         if (!isPlaying) return;
         activeMiniBoss = null;
@@ -4207,7 +4207,7 @@ function defeatBoss(boss) {
     for(let k=0; k<Math.max(4, Math.round(15 * powerupDropMult())); k++) items.push(new Item(boss.x + Math.random()*boss.width, boss.y + Math.random()*boss.height));
     for(let k=0; k<20; k++) pointItems.push(new PointItem(boss.x + Math.random()*boss.width, boss.y + Math.random()*boss.height, 'power'));
     for(let k=0; k<40; k++) pointItems.push(new PointItem(boss.x + Math.random()*boss.width, boss.y + Math.random()*boss.height, 'pixel'));
-    for(let k=0; k<perfCount(60); k++) dopamineParticles.push(new DopamineParticle(boss.x + boss.width/2, boss.y + boss.height/2, true));
+    for(let k=0; k<perfCount(22); k++) dopamineParticles.push(new DopamineParticle(boss.x + boss.width/2, boss.y + boss.height/2, true));
     setTimeout(() => { if(isPlaying) { if (isLunaticFinalLevel()) triggerGameWin(); else triggerLevelComplete(); } }, 1800);
 }
 
