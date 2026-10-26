@@ -12,7 +12,7 @@
 //       7) "balitas de AMISTAD"... que en realidad son balas  →  Estrellita se convierte en un
 //          monstruo estilo Flowey y hay que DERROTARLO (3 fases) para terminar el tutorial.
 //  · Sale solo la PRIMERA vez que empiezas una partida (modo Moderno), después de la llegada de la nave.
-//  · Se puede SALTAR con el botón de arriba a la derecha (toca 2 veces). Enter / tocar el lienzo = avanzar el diálogo.
+//  · Se puede SALTAR con el botón de abajo al centro (toca 2 veces). Enter / tocar el lienzo = avanzar el diálogo.
 //  · Para verlo de nuevo: botón "VER TUTORIAL" del menú de pausa (entre jefes), o Tutorial.show() / Tutorial.reset() en consola.
 //    Consola de pruebas: Tutorial.dev.go('shoot'|'items'|'hitbox'|'bomb'|'big'|'pellets'|'boss'|'end') · Tutorial.dev.hp(n)
 //  No toca el resto del juego: usa su propia lista de enemigos de práctica y su propio jefe; el estado de la partida
@@ -25,6 +25,9 @@
     const $ = id => document.getElementById(id);
     const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
     const phone = () => { try { return optMobile.checked; } catch (e) { return false; } };
+    // v59: zona segura bajo el HUD del teléfono (vertical): la estrella, el globo y el cartel nunca tapan puntaje, vidas ni casillas
+    const safeTop = () => { try { return (window.HudPhone && HudPhone.active()) ? HudPhone.safeTop() : 0; } catch (e) { return 0; } };
+    const safeLeft = () => (phone() && safeTop() === 0) ? 40 : 0;   // en horizontal el cartel se corre a la derecha del botón de pausa
     const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
     const rnd = (a, b) => a + Math.random() * (b - a);
     const PW = () => playAreaW, PH = () => playAreaH;
@@ -202,7 +205,7 @@
         const lay = layout(g, D.text, maxW, fs), extra = D.block ? fs * 1.05 : 0, bw = Math.max(lay.mw, D.block ? fs * 5.2 : 0) + pad * 2, bh = lay.L.length * lh + pad * 1.5 + extra;
         const capH = CAP ? CAP.h + 14 : 0, onRight = sp.x < W * 0.5;
         let bx = onRight ? sp.x + sp.r + 18 : sp.x - sp.r - 18 - bw; bx = clamp(bx, 6, W - bw - 6);
-        let by = clamp(sp.y - bh / 2, 8 + capH, Math.max(8 + capH, H * 0.46 - bh)); if (B && B.state !== 'gone') by = (B.state === 'active' || B.state === 'dying' ? 60 : 8) + capH;
+        const top0 = 8 + safeTop() + capH; let by = clamp(sp.y - bh / 2, top0, Math.max(top0, H * 0.46 - bh)); if (B && B.state !== 'gone') by = (B.state === 'active' || B.state === 'dying' ? 60 : 8) + safeTop() + capH;
         const pop = clamp((T.t - D.born) / 6, 0.5, 1) , sc = pop < 1 ? 0.88 + 0.12 * pop : 1;
         g.save(); g.translate(bx + bw / 2, by + bh / 2); g.scale(sc, sc); g.translate(-(bx + bw / 2), -(by + bh / 2));
         const jag = (x, y, w, h) => { const n = Math.max(10, Math.round((w + h) / 14)); g.beginPath(); for (let i = 0; i < n * 2; i++) { const a = i / (n * 2) * TAU, k = i % 2 ? 0.9 : 1.08; g.lineTo(x + w / 2 + C(a) * w / 2 * k * 1.06, y + h / 2 + S(a) * h / 2 * k * 1.12); } g.closePath(); };
@@ -221,7 +224,7 @@
     function drawCaption() {
         if (!CAP) return; const g = ctx, W = PW(), fs = clamp(W * 0.024, 11, 15), maxW = clamp(W * 0.5, 150, 340), lay = layout(g, CAP.text, maxW, fs), lh = fs * 1.25;
         const a = clamp(CAP.t / 8, 0, 1) * clamp((CAP.life - CAP.t) / 12, 0, 1), w = lay.mw + 18; CAP.h = lay.L.length * lh + 14;
-        g.save(); g.globalAlpha = a; g.translate(0, (1 - a) * -8);
+        g.save(); g.globalAlpha = a; g.translate(safeLeft(), safeTop() + (1 - a) * -8);
         g.fillStyle = '#000'; g.fillRect(11, 11, w, CAP.h); g.fillStyle = CAP.kind === 'white' ? '#fff' : '#ffe94a'; g.fillRect(8, 8, w, CAP.h); g.lineWidth = 3; g.strokeStyle = '#000'; g.strokeRect(8, 8, w, CAP.h);
         g.font = FT(fs); drawRuns(g, lay, 17, 8 + 7 + fs * 0.85, lh, 9999, '#111', '#d4142c'); g.restore();
     }
@@ -302,7 +305,7 @@
         }
     }
     const pcx = () => player.x + player.width / 2, pcy = () => player.y + player.height / 2;
-    function home() { const r = star.r; return { x: PW() - r - 16, y: r + 20 }; }
+    function home() { const r = star.r; return { x: PW() - r - 16, y: r + 20 + safeTop() }; }
     function hurtPlayer() {
         if (Date.now() <= invulnerableUntil) return false;
         if (powerUps.shield > Date.now()) { createExplosion(pcx(), pcy(), '#0ff', 8, true); invulnerableUntil = Date.now() + 500; return false; }
@@ -700,7 +703,7 @@
             st.textContent = '#tcSkip2{position:fixed;bottom:8px;right:8px;z-index:9990;font:900 11px Impact,"Arial Black",sans-serif;letter-spacing:.5px;padding:8px 12px;border:3px solid #ffe94a;background:#111;color:#ffe94a;border-radius:6px;cursor:pointer;opacity:.85}#tcSkip2:active{background:#d4142c;color:#fff}';
             document.head.appendChild(st);
         }
-        removeSkip(); const b = document.createElement('button'); b.id = 'tcSkip2'; b.type = 'button'; b.textContent = 'SALTAR TUTORIAL ✕'; if (phone()) { b.style.bottom = 'auto'; b.style.top = '6px'; b.style.right = 'auto'; b.style.left = '50%'; b.style.transform = 'translateX(-50%)'; b.style.padding = '5px 9px'; b.style.fontSize = '9px'; }
+        removeSkip(); const b = document.createElement('button'); b.id = 'tcSkip2'; b.type = 'button'; b.textContent = 'SALTAR TUTORIAL ✕'; if (phone()) { b.style.bottom = 'max(14px, env(safe-area-inset-bottom))'; b.style.top = 'auto'; b.style.right = 'auto'; b.style.left = '50%'; b.style.transform = 'translateX(-50%)'; b.style.padding = '5px 8px'; b.style.fontSize = '9px'; b.style.lineHeight = '1.15'; b.style.maxWidth = '92px'; b.style.whiteSpace = 'normal'; b.style.textAlign = 'center'; b.textContent = 'SALTAR\nTUTORIAL ✕'; b.style.whiteSpace = 'pre-line'; }
         b.onclick = () => { if (T.skipT > 0) { finish(true); } else { T.skipT = 1; b.textContent = '¿SEGURO? TOCA OTRA VEZ'; setTimeout(() => { T.skipT = 0; if (b.isConnected) b.textContent = 'SALTAR TUTORIAL ✕'; }, 2500); } };
         document.body.appendChild(b); T.skipBtn = b;
     }

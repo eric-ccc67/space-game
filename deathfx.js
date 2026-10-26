@@ -69,7 +69,7 @@
         const sc = Math.max(0.7, Math.min(1.25, Math.min(playAreaW, playAreaH) / 560));
         if (tier === 1) { small(x, y, col, 1); return; }
         if (tier === 2) {   // MINI JEFE
-            add({ kind: 'screen', a: 0.45, dur: 9 });
+            add({ kind: 'screen', a: 0.2, dur: 16 });   // v60: más suave (antes 0.45 en 9 cuadros)
             add({ kind: 'flash', x, y, r: 80 * sc, col, dur: 20 });
             [[0, 175, 6, col], [6, 250, 4, '#fff'], [14, 320, 3, col]].forEach(a => add({ kind: 'ring', x, y, r0: 10, r1: a[1] * sc, w: a[2], col: a[3], dur: 30, delay: a[0] }));
             add({ kind: 'rays', x, y, r1: 210 * sc, n: 10, rot: rnd(0, TAU), col: '#fff', dur: 28 });
@@ -77,7 +77,7 @@
             for (let i = 0; i < 6; i++) small(x + rnd(-44, 44) * sc, y + rnd(-34, 34) * sc, col, 0.9, 4 + i * 5);
             return;
         }
-        add({ kind: 'screen', a: 0.8, dur: 18 });  // JEFE
+        add({ kind: 'screen', a: 0.28, dur: 30 });  // JEFE · v60: antes 0.8 en 18 cuadros (blanco casi total); ahora tenue y lento, apto para fotosensibles
         add({ kind: 'flash', x, y, r: 150 * sc, col, dur: 26 });
         [[0, 270, 8], [8, 370, 6], [17, 460, 4], [27, 560, 3]].forEach((a, i) => add({ kind: 'ring', x, y, r0: 12, r1: a[1] * sc, w: a[2], col: i % 2 ? '#fff' : col, dur: 38, delay: a[0] }));
         add({ kind: 'rays', x, y, r1: 340 * sc, n: 14, rot: rnd(0, TAU), col: '#fff', dur: 34 });

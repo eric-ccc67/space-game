@@ -17,7 +17,11 @@
     let topH = 46;   // alto de la barra superior en vertical (cambia si hay efectos activos)
 
     function active() { try { return CFG.enabled && optMobile.checked && currentMode !== 'clasico' && !isVerticalMode; } catch (e) { return false; } }
-    function enemyPos() { return isPortraitMode ? { x: 12, y: topH + 16 } : { x: 56, y: 22 }; }
+    // v59: ZONA SEGURA. Alto (en px del lienzo) que ocupa la barra superior en vertical; el resto de overlays (tutorial, combo,
+    //      cartel arcoíris, etiqueta de jefe) empiezan por debajo para no chocar con el HUD. En horizontal no hay barra arriba: 0.
+    function safeTop() { return (isPortraitMode && active()) ? topH + 10 : 0; }
+    // etiqueta "Enemigo ★★★": en vertical va a la DERECHA, bajo la barra (el combo ocupa la izquierda); en horizontal junto a la pausa
+    function enemyPos() { return isPortraitMode ? { x: Math.max(60, canvas.width - 122), y: topH + 16 } : { x: 56, y: 22 }; }
 
     function stats(a) {
         const maxed = powerLevel >= MAX_POWER_LEVEL, ready = !!mPromptActive;
@@ -112,6 +116,6 @@
     }
 
     function draw(a) { if (isPortraitMode) top(a); else side(a); }
-    window.HudPhone = { cfg: CFG, active, draw, enemyPos };
+    window.HudPhone = { cfg: CFG, active, draw, enemyPos, safeTop };
     try { if (typeof fitGameToScreen === 'function') fitGameToScreen(); } catch (e) {}   // recalcula el layout con el HUD compacto
 })();

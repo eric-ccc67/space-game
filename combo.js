@@ -307,12 +307,15 @@
 
     // ---------------------------------------------------------------- HUD DEL COMBO
     function outlineText(txt, x, y, fill, stroke, w) { ctx.lineWidth = w || 4; ctx.strokeStyle = stroke || '#12000a'; ctx.strokeText(txt, x, y); ctx.fillStyle = fill; ctx.fillText(txt, x, y); }
+    // v59: si el HUD del teléfono (vertical) crece (barra de efectos), el panel de combo baja para no tocarlo
+    function hudSafe() { try { return (window.HudPhone && HudPhone.active()) ? HudPhone.safeTop() : 0; } catch (e) { return 0; } }
+    function comboDy() { return Math.max(0, hudSafe() + 6 - 66); }
     function drawCombo() {
         const W = PW(), H = PH(), t = C.frame, ri = C.ri, r = ri >= 0 ? RANKS[ri] : null;
         ctx.save(); ctx.textAlign = 'left'; ctx.lineJoin = 'round';
 
         // --- panel principal (esquina izquierda) · ampliado ×1.3 para que se lea de un vistazo
-        ctx.save(); ctx.translate(6, 70); ctx.scale(0.8, 0.8); ctx.translate(-6, -84);   // v56: más chico y más arriba para no tapar el HUD
+        ctx.save(); ctx.translate(6, 70 + comboDy()); ctx.scale(0.8, 0.8); ctx.translate(-6, -84);   // v56: más chico y más arriba para no tapar el HUD
         if (C.n >= 1) {
             const col = rankCol(r || { c: '#9aa6b8' }, t), x0 = 8 + C.shakeX, y0 = 88 + C.shakeY, sc = 1 + C.pop * 0.55;
             const fade = C.t < 30 && C.rainbow <= 0 ? 0.55 + 0.45 * S(t * 0.5) : 1;
@@ -374,8 +377,8 @@
         }
         // --- cartel del Modo Arcoíris con barra de tiempo restante
         if (C.rainbow > 0) {
-            const k = C.rainbow / RAINBOW_FRAMES, bw = 150, bx = W / 2 - bw / 2, by = 36;
-            ctx.globalAlpha = 0.95; ctx.textAlign = 'center'; ctx.font = '8px "Press Start 2P", monospace'; outlineText('★ MODO ARCOIRIS ★', W / 2, by - 6, hue(t * 8), '#12000a', 4);
+            const k = C.rainbow / RAINBOW_FRAMES, bw = 150, hs = hudSafe(), bx = hs ? W - bw - 8 : W / 2 - bw / 2, by = hs ? hs + 34 : 36;   // v59: con HUD de teléfono, a la derecha y bajo la etiqueta de jefe
+            ctx.globalAlpha = 0.95; ctx.textAlign = 'center'; ctx.font = '8px "Press Start 2P", monospace'; outlineText('★ MODO ARCOIRIS ★', bx + bw / 2, by - 6, hue(t * 8), '#12000a', 4);
             ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(bx, by, bw, 6);
             ctx.fillStyle = hue(t * 6); ctx.fillRect(bx + 1, by + 1, (bw - 2) * k, 4); ctx.fillStyle = hue(t * 6 + 120); ctx.fillRect(bx + 1 + (bw - 2) * k * 0.5, by + 1, (bw - 2) * k * 0.5, 4);
         }
