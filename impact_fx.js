@@ -252,6 +252,7 @@
 
     window.ImpactFX = {
         cfg: CFG,
+        reset() { IMP = null; },
         test() { const b = (typeof activeBoss !== 'undefined' && activeBoss) || { x: playAreaW / 2 - 60, y: playAreaH * 0.2, width: 120, height: 120 }; startImpact(b); },
         rank() { return makeCard(); }
     };

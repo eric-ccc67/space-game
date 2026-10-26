@@ -744,6 +744,7 @@
 
     window.Choque = {
         active: () => !!ST,
+        abort,
         intercept,
         need: needTable,
         dev: { state: () => ST && ({ ph: ST.ph, pt: ST.pt, pos: ST.pos, goal: ST.goal, rate: ST.rate, cam: { fx: ST.cam.fx, fy: ST.cam.fy, s: ST.cam.s }, px: player.x, py: player.y }),

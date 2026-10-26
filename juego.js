@@ -4998,16 +4998,37 @@ function drawBulletBox(b) {
 // v43: red de seguridad del bucle principal. Antes, cualquier error dentro de un cuadro (p. ej. una bomba que mataba al jefe a
 // mitad de efecto) cortaba el bucle: todo se quedaba congelado y solo funcionaban los botones del menú. Ahora el error se
 // anota en la consola, se cancelan los efectos que suelen causarlo y el juego sigue en el cuadro siguiente.
-let __loopSched = false, __loopErrN = 0;
+let __loopSched = false, __loopErrN = 0, __loopErrTot = 0, __tkN = 0;
 function __nextFrame() { __loopSched = true; requestAnimationFrame(gameLoop); }
+// v62: el bucle NUNCA se detiene. Si un cuadro falla muchas veces seguidas se pasa a recuperación escalonada:
+//   30 errores seguidos -> se cancelan los efectos de jefe (eventos, choque, impact frame, moneda, hit-stop)
+//   60 errores seguidos -> además se purgan de los arreglos las entidades rotas (NaN / vacías) y los enemigos pequeños del combo
+//   90+ -> se repite cada 30 cuadros. Antes (>90) se lanzaba el error y el juego se quedaba congelado para siempre.
+function __entOk(o) { return !!o && !(typeof o.x === 'number' && !isFinite(o.x)) && !(typeof o.y === 'number' && !isFinite(o.y)); }
+function __purge(a) { if (!Array.isArray(a)) return; for (let i = a.length - 1; i >= 0; i--) if (!__entOk(a[i])) a.splice(i, 1); }
+function __releaseEffects() {
+    try { if (window.Choque && Choque.abort) Choque.abort(); } catch (e) {}
+    try { if (window.ImpactFX && ImpactFX.reset) ImpactFX.reset(); } catch (e) {}
+    try { if (window.BossEvents && BossEvents.cancelAll) BossEvents.cancelAll(); } catch (e) {}
+    try { if (window.BombFX) BombFX.reset(); bombEffect.active = false; } catch (e) {}
+    try { coinCine = null; window.__hitStop = 0; } catch (e) {}
+}
+function __loopRecover(level) {
+    __releaseEffects();
+    if (level >= 2) {
+        try { __purge(enemyBullets); __purge(bullets); __purge(items); __purge(pointItems); __purge(particles); __purge(dopamineParticles); __purge(enemies); } catch (e) {}
+        try { if (window.Combo && Combo.fodder) Combo.fodder.length = 0; } catch (e) {}
+    }
+}
 function gameLoop() {
     __loopSched = false;
     try { gameLoopFrame(); __loopErrN = 0; }
     catch (err) {
-        console.error('[gameLoop] error recuperado:', err);
-        try { if (window.BombFX) BombFX.reset(); bombEffect.active = false; } catch (e) {}
+        __loopErrTot++; __loopErrN++;
+        if (__loopErrN <= 3 || __loopErrN % 60 === 0) console.error('[gameLoop] error recuperado (' + __loopErrN + '):', err);
         try { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.shadowBlur = 0; } catch (e) {}
-        if (++__loopErrN > 90) throw err;                  // error que no se arregla solo (90 cuadros seguidos): sale el aviso rojo como antes
+        try { if (window.BombFX) BombFX.reset(); bombEffect.active = false; } catch (e) {}
+        if (__loopErrN === 30) __loopRecover(1); else if (__loopErrN >= 60 && __loopErrN % 30 === 0) __loopRecover(2);
         if (!__loopSched) __nextFrame();
     }
 }
@@ -5022,7 +5043,12 @@ function gameLoopFrame() {
     if (reviveAnim) { drawReviveAnim(); __nextFrame(); return; }                // la nave se rearma
     if (continueState) { drawContinue(); __nextFrame(); return; }               // ¿continuar?
     
-    if (Extras.takeover()) { __nextFrame(); return; }
+    if (Extras.takeover()) {
+        // v62: seguro anti-congelamiento. Choque / impact frame duran pocos segundos; si el 'takeover' sigue activo >2400 cuadros (~40 s) algo se atascó: se sueltan.
+        if (++__tkN > 2400) { __tkN = 0; console.warn('[gameLoop] takeover atascado: se liberan los efectos'); __releaseEffects(); }
+        __nextFrame(); return;
+    }
+    __tkN = 0;
     if (coinCine) { drawCoinCine(); __nextFrame(); return; }                    // v43: escena de la moneda (2 s)
     if (window.__hitStop > 0) { window.__hitStop--; __nextFrame(); return; }   // v40: pausa corta al caer el mini jefe (antes de que salga la moneda)
     
